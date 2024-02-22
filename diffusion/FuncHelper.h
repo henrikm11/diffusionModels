@@ -9,8 +9,7 @@
 namespace diffusion{
 
 
-//neded changes:
-//a allowed to be vector an not just double
+
 
 //everything inlined automatically!
 // helper class to deal with various signatures of functions simultaneously
