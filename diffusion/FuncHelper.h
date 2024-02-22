@@ -35,11 +35,13 @@ public:
     :func1_(nullptr), func2_(nullptr), func2Vec_(func2Vec), factor_(factor), power_(power)
     {if(func2Vec==nullptr) throw std::invalid_argument("FuncHelper needs non null pointer for instantiation");};
     
+	//copy type constructor that can modify
     FuncHelper(const FuncHelper& other, double factor=1.0, double power = 1.0)
     :func1_(other.func1_), func2_(other.func2_), func2Vec_(other.func2Vec_), factor_(factor), power_(power)
     {};
     
-
+	
+	//constructor for explicit funcion (x,t)->factor*(betaMin + (betaMax-betaMin)*t/timeMax)**power*x or its integral
     FuncHelper(double betaMin, double betaMax, double timeMax, double factor=1.0, double power=1.0, bool integral=false)
     :func1_(nullptr), func2_(nullptr), func2Vec_(nullptr), factor_(factor), power_(power), betaMax_(betaMax), betaMin_(betaMin), integral_(integral)
     {
@@ -51,9 +53,8 @@ public:
         }
         return;
     };
-
-    //write constructors if we get vector function
-   
+	   
+	//overloads for operator()
 
     double operator()(double x, double t){
         if(func2_!=nullptr) return func2_(x,t); 
@@ -64,7 +65,6 @@ public:
         return res;
     };
 
-    //check if overload is ok
     std::vector<double> operator()(const std::vector<double>& X, double t){
         if(func2Vec_!=nullptr) return func2Vec_(X,t);
         std::vector<double> res(X.size(),0);
