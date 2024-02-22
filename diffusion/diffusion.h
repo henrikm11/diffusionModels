@@ -61,6 +61,21 @@ public:
         double timeStep
     );
 
+    //functions to sample from process
+    //virtual because this can be sped up significantly for more specific processes
+    
+    virtual double sample(
+        double inputState,
+        double time,
+        double timeStepSize
+    );
+
+    virtual std::vector<double> sample(
+        const std::vector<double>& inputState,
+        double time,
+        double timeStepSize
+    );
+
 
 private:
     std::mt19937 rng_;
@@ -103,12 +118,12 @@ public:
     /// @param inputSample sample from initial distribution
     /// @param time sample process at time
     /// @return sample of diffusion process at time 
-    double oneDimSample(
+    virtual double sample(
         double inputSample,
         double time
     );
 
-    std::vector<double> sample(
+    virtual std::vector<double> sample(
         const std::vector<double>& inputSample,
         double time
     );

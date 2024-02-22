@@ -56,11 +56,63 @@ std::vector<double> diffusion::GeneralDiffusor::diffusionStep(
     double time,
     double timeStep
 ){
-    std::vector<double> outputState(inputState.size(),0);
+    std::vector<double> outputState = driftFct_(inputState,time); //overload in FuncHelper resolves this!
     for(size_t i=0; i<outputState.size(); i++){
-        outputState[i]=diffusionStep(inputState[i],time,timeStep);
+        outputState[i]*=timeStep;
     }
+
+    std::vector<double> noise = diffusionFct_(inputState,time);
+    for(size_t i=0; i<noise.size(); i++){
+        double z = getRandomNormal();
+        outputState[i]+=(noise[i]*sqrt(timeStep)*z);
+    }
+
     return outputState;
+}
+
+//sample state at time starting from inputState
+double diffusion::GeneralDiffusor::sample(
+    double inputState,
+    double time,
+    double timeStepSize
+)
+{
+    if(time<=0) throw(std::invalid_argument("diffusion::GeneralDiffusor::sample(...)need time>0"));
+    if(timeStepSize<=0) throw(std::invalid_argument("diffusion::GeneralDiffusor::sample(...)need timeStepSize>0"));
+
+    double currTime=0;
+    double res=inputState;
+
+    while(currTime+timeStepSize<=time){
+        res=diffusionStep(res,currTime,timeStepSize);
+        currTime+=timeStepSize;
+    }
+    if(currTime<time) res=diffusionStep(res,currTime,time-currTime);
+    
+    return res;
+}
+
+
+//literally the same code as function above because of overload for diffusionStep
+//so could have used a template
+std::vector<double> diffusion::GeneralDiffusor::sample(
+    const std::vector<double>& inputState,
+    double time,
+    double timeStepSize
+){
+    if(time<=0) throw(std::invalid_argument("diffusion::GeneralDiffusor::sample(...)need time>0"));
+    if(timeStepSize<=0) throw(std::invalid_argument("diffusion::GeneralDiffusor::sample(...)need timeStepSize>0"));
+
+    double currTime=0;
+    std::vector<double> res=inputState;
+
+    while(currTime+timeStepSize<=time){
+        res=diffusionStep(res,currTime,timeStepSize);
+        currTime+=timeStepSize;
+    }
+    if(currTime<time) res=diffusionStep(res,currTime,time-currTime);
+    
+    return res;
 }
 
 //GeneralDiffusor
@@ -97,7 +149,7 @@ diffusion::OUDiffusor::OUDiffusor(
 diffusion::OUDiffusor::~OUDiffusor(){}
 
 
-double diffusion::OUDiffusor::oneDimSample(
+double diffusion::OUDiffusor::sample(
     double inputSample,
     double time
 )
@@ -116,7 +168,7 @@ std::vector<double> diffusion::OUDiffusor::sample(
 {   
     std::vector<double> outputSample(inputSample.size(),0);
     for(size_t i=0; i<inputSample.size(); i++){
-        outputSample[i]=oneDimSample(inputSample[i],time);
+        outputSample[i]=sample(inputSample[i],time);
     }
     return outputSample;
 }
