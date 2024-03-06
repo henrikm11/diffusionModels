@@ -1,143 +1,321 @@
 //FuncHelper.h
 
+
+
 #pragma once
 
+#include <iostream>
 #include <vector>
 #include <stdexcept>
 #include <cmath>
 #include <memory>
-#include "vanilla_network/neuralNetwork.h"
+//#include "tensor_template/tensor_template.h"
+//#include "neuralNetwork.h"
 
-namespace diffusion{
+//namespace diffusion{
 
-
-//TO DO
-/*
--) write faster versions of operator() in various cases
-*/
-
-
-//everything inlined automatically!
-// helper class to deal with various signatures of functions simultaneously
-// if f is in two variables returns f(a,b)
-// if f is in one variable returns factor_*a*(f(b)**power) or integral of this
-// if parameters betaMin, betaMax, timeMax are passed explicit f(t)= betaMin + (betaMax-betaMin)*t/timeMax
+//purely virtual base class
 class FuncHelper{
 public:
-
-    //function in one argument
-    FuncHelper(double (*const func1)(double), double factor=1.0, double power = 1.0)
-    :func1_(func1), func2_(nullptr), func2Vec_(nullptr), neuralNet_(nullptr), factor_(factor), power_(power)
-    {if(func1==nullptr) throw std::invalid_argument("FuncHelper needs non null pointer for instantiation");};
-    
-    //function in two arguments, one dimensional
-    FuncHelper(double (*const func2)(double,double), double factor=1.0, double power = 1.0)
-    :func1_(nullptr), func2_(func2), func2Vec_(nullptr), neuralNet_(nullptr), factor_(factor), power_(power)
-    {if(func2==nullptr) throw std::invalid_argument("FuncHelper needs non null pointer for instantiation");};
-
-    //function in two arguments, any dimensional
-    FuncHelper(std::vector<double> (*const func2Vec)(const std::vector<double>&,double), double factor=1.0, double power = 1.0)
-    :func1_(nullptr), func2_(nullptr), func2Vec_(func2Vec), neuralNet_(nullptr), factor_(factor), power_(power)
-    {if(func2Vec==nullptr) throw std::invalid_argument("FuncHelper needs non null pointer for instantiation");};
-    
-    //copy constructor is default
-    //copy assignment is default
-    //destructor is default 
-
-    //copy type constructor that can also modify
-    FuncHelper(const FuncHelper& other, double factor, double power)
-    :func1_(other.func1_), func2_(other.func2_), func2Vec_(other.func2Vec_), neuralNet_(other.neuralNet_), factor_(factor), power_(power)
-    {};
-
-    FuncHelper& operator=(const FuncHelper& other) = default;
-    ~FuncHelper(void) = default;
-    
-
-    FuncHelper(double betaMin, double betaMax, double timeMax, double factor=1.0, double power=1.0, bool integral=false)
-    :func1_(nullptr), func2_(nullptr), func2Vec_(nullptr), factor_(factor), power_(power), betaMax_(betaMax), betaMin_(betaMin), integral_(integral)
-    {
-        if(betaMin>=betaMax) throw std::invalid_argument("FuncHelper needs betaMin<betaMax");
-        if(timeMax<=0) throw std::invalid_argument("FuncHelper needs timeMax>0");
-        if(integral_){
-            betaMax_+=betaMin_;
-            betaMin_*=2;
-        }
-        return;
-    };
-
-    FuncHelper(vanillaNeuralNet::neuralNetworkWeightedMSE* neuralNet)
-    :func1_(nullptr), func2_(nullptr), func2Vec_(nullptr), neuralNet_(neuralNet)
-    {};
-
-   
-
-    double operator()(double x, double t){
-        if(func2_!=nullptr) return func2_(x,t); 
-        if(neuralNet_!=nullptr) return ((std::vector<double>) neuralNet_->predict(std::vector<double>(1,x),t,true)).front();
-        double res=0;
-        if(func1_!=nullptr) res = func1_(t);
-        else res = explicitFctEval_(t);
-        res = adjustResult_(res,x,t);
-        return res;
-    };
+    FuncHelper(double factor=1.0, double power=1.0, bool integral=false): factor_(factor), power_(power), integral_(integral){};
 
 
-    std::vector<double> operator()(const std::vector<double>& X, double t){
-        if(func2Vec_!=nullptr) return func2Vec_(X,t);
-        if(neuralNet_!=nullptr) return (std::vector<double>) neuralNet_->predict(X,t,true);
-        std::vector<double> res(X.size(),0);
-        for(size_t i=0; i<res.size(); i++) res[i]=operator()(X[i],t);
-        return res;
-    }
+    virtual double operator()(double) const =0;
+    virtual double operator()(double, double) const =0;
+    virtual std::vector<double> operator()(const std::vector<double>&, double) const =0;
+    virtual ~FuncHelper(void)=default;
 
-    double operator()(double t){
-        if(func2_!=nullptr) return func2_(1,t);
-        double res = 0;
-        if(func1_!=nullptr) res = func1_(t);
-        else double res = explicitFctEval_(t);
-        res = adjustResult_(res);
-        return res;
-    }
-private:
-    //evaluation of function betaMin_ + (betaMax_-betaMin_)*t/timeMax_;
-    double explicitFctEval_(double t){
-        double res = 0;
-        res = betaMin_ + (betaMax_-betaMin_)*t/timeMax_;
-        return res;
-    };
 
- 
-   //adjust computation of function in one variable for power and factor
-    double adjustResult_(double res){
-        res = std::pow(res, power_);
+protected:
+    //adjust res to factor_*res^power_
+    double adjustResult_(double res) const {
+        res = std::pow(res,power_);
         res*=factor_;
         return res;
-    };
+    }
 
-    //adjust comnputation of function in two variables for power, factor, integral
-    double adjustResult_(double res, double x, double t){
+    //adjust res to factor_*x*res^power_ 
+    //multiply by t to integrate
+    double adjustResult_(double res, double x, double t) const {
         res = std::pow(res, power_);
         res*=x;
         res*=factor_;
         if(integral_) res*=t;
         return res;
-    };
+    }
 
-    double (*func1_)(double);
-    double (*func2_)(double,double);
 
-    std::vector<double> (*func2Vec_)(const std::vector<double>&, double);
-
-    vanillaNeuralNet::neuralNetworkWeightedMSE* neuralNet_;
-
-    double factor_=1;
-    double power_=1;
-
-    double betaMin_=0;
-    double betaMax_=0; 
-    double timeMax_=0;
-    bool integral_=false;
-    
+private:
+    double factor_; //multiply input function by factor_
+    double power_;  //raise input function by power_
+    bool integral_; //integrate input function when explicit
 };
 
-} //end namespace diffusion
+
+//
+//end of purely virtual base class
+//
+
+
+//version for functions double -> double and (double,double) -> double
+class ScalarFuncHelper : public FuncHelper{
+public:
+    
+    //function in one argument
+    ScalarFuncHelper(double (*const func1)(double), double factor=1.0, double power = 1.0, bool integral=false)
+        :FuncHelper(factor,power,integral),
+        func1_(func1),
+        func2_(nullptr)
+    {
+        if(func1==nullptr) throw std::invalid_argument("FuncHelper needs non null pointer for instantiation");
+    };
+
+    //function in two arguments
+    //function in one argument
+    ScalarFuncHelper(double (*const func2)(double,double), double factor=1.0, double power = 1.0, bool integral=false)
+        :FuncHelper(factor,power,integral),
+        func1_(nullptr),
+        func2_(func2)
+    {
+        if(func2==nullptr) throw std::invalid_argument("FuncHelper needs non null pointer for instantiation");
+    };
+
+
+
+
+    virtual double operator()(double t) const {
+        if(func2_!=nullptr) return func2_(1.0,t);
+        double res = func1_(t);
+        res = adjustResult_(res);
+        return res;
+    }
+
+    virtual double operator()(double x, double t) const {
+        if(func2_!=nullptr) return func2_(x,t); 
+        double res = func1_(t);
+        res = adjustResult_(res,x,t);
+        return res;
+    }
+
+    //apply operator() elementwise
+    virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
+        std::vector<double> res(X.size(),0);
+        for(size_t i=0; i<res.size(); i++) res[i]=operator()(X[i],t);
+        return res;
+    }
+
+
+private:
+    double (*func1_)(double);
+    double (*func2_)(double,double);
+};
+
+//
+//end of ScalarFuncHelper
+//
+
+
+//version for functions vector<double> -> vector<double> and (vector<double>,double) -> vector<double>
+class VectorFuncHelper : public FuncHelper{
+public:
+    VectorFuncHelper(std::vector<double> (*funcVec)(const std::vector<double>&, double), double factor=1.0, double power = 1.0, bool integral=false)
+        :FuncHelper(factor, power, integral),
+        funcVec_(funcVec)
+    {
+        if(funcVec==nullptr) throw std::invalid_argument("VectorFuncHelper needs non null pointer for instantiation");
+    }
+
+    virtual double operator()(double x, double t) const {
+        std::vector<double> X = {x};
+        std::vector<double> resVec = funcVec_(X,t);
+        return resVec[0]; 
+    }
+
+    virtual double operator()(double t) const {
+        return operator()(1.0,t);
+    }
+
+
+    virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
+        return funcVec_(X,t);
+    }
+
+
+private:
+    std::vector<double> (*funcVec_)(const std::vector<double>&, double);
+
+};
+
+//
+//end of VectorFuncHelper
+//
+
+//version for explicit variance schedule / evaluation of t -> betaMin_ + (betaMax_-betaMin_)*t/timeMax_;
+class ExplicitFuncHelper : public FuncHelper{
+public:
+    ExplicitFuncHelper(double betaMin, double betaMax, double timeMax, double factor=1, double power=1, bool integral=false)
+        :FuncHelper(factor,power,integral),
+        betaMin_(betaMin),
+        betaMax_(betaMax),
+        timeMax_(timeMax)
+    {
+        if(betaMin>=betaMax) throw std::invalid_argument("ExplicitFuncHelper needs betaMin<betaMax");
+        if(timeMax<=0) throw std::invalid_argument("ExplicitFuncHelper needs timeMax>0");
+        if(integral){
+            betaMax_+=betaMin_;
+            betaMin_*=2;
+        }
+        return;
+    }
+
+    virtual double operator()(double t) const {
+        double res = explicitFctEval_(t);
+        res = adjustResult_(res);
+        return res;
+    }
+
+    virtual double operator()(double x, double t) const {
+        double res = explicitFctEval_(t);
+        res = adjustResult_(res,x,t);
+        return res;
+    }
+
+    virtual std::vector<double> operator()(const std::vector<double>& X, double t){
+        std::vector<double> res(X.size(),0);
+        for(size_t i=0; i<X.size(); i++) res[i]=operator()(X[i],t);
+        return res;
+    }
+
+
+private:
+
+    double explicitFctEval_(double t) const {
+        double res = 0;
+        res = betaMin_ + (betaMax_-betaMin_)*t/timeMax_;
+        return res;
+    };
+
+    //member variables
+    double betaMin_;
+    double betaMax_;
+    double timeMax_;
+};
+
+//
+//end of ExplicitFuncHelper
+//
+
+/*
+//version to use predict of neural network
+class NeuralNetFuncHelper : public FuncHelper{
+public:
+    NeuralNetFuncHelper(vanillaNeuralNet::neuralNetworkWeightedMSE* neuralNet):neuralNet_(neuralNet){};
+
+    virtual double operator()(double x, double t){
+        std::vector<double> X = {x};
+        return operator()(X,t)[0];
+    }
+
+    virtual double operator()(double t){
+        return operator()(1.0,t);
+    }
+
+    virtual std::vector<double> operator(const std::vector<double>& X, double t){
+        Tensor<double,1> X_tensor(X);
+        Tensor<double,1> res_tensor = neuralNet_->predict(X_tensor,t,true);
+        return std::vector<double>(res_tensor);
+    }
+
+
+private:
+    vanillaNeuralNet::neuralNetworkWeightedMSE* neuralNet_;
+};
+
+//
+//end of NeuralNetFuncHelper
+//
+*/
+
+
+
+//need to ensure that we use scalar/vector versions for all of them
+
+//version to sum across vector of FuncHelpers
+class SumFuncHelper : public FuncHelper{
+public:
+    SumFuncHelper(const std::vector<FuncHelper*> summands):summands_(summands){};
+
+    virtual double operator()(double t) const {
+        double res=0;
+        for(const FuncHelper* f : summands_) res+=(*f)(t);
+        return res;
+    }
+
+    virtual double operator()(double x, double t) const {
+        double res=0;
+        for(const FuncHelper* f : summands_) res+=(*f)(x,t);
+        return res;
+    }
+
+    virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
+        std::vector<double> res(X.size(),0);
+        for(const FuncHelper* f : summands_){
+            std::vector<double> nextSummand = (*f)(X,t);
+            for(size_t i=0; i<X.size(); i++){
+                res[i]+=nextSummand[i];
+            }
+        }
+        return res;
+    }
+
+private:
+    std::vector<FuncHelper*> summands_;
+
+};
+
+//
+//end of SumFuncHelper
+//
+
+
+//version to multiply accross vector of FuncHelpers
+class ProductFuncHelper : public FuncHelper{
+public:
+    ProductFuncHelper(const std::vector<FuncHelper*> factors):factors_(factors){};
+
+    virtual double operator()(double t) const {
+        double res=1;
+        for(const FuncHelper* f : factors_) res*=(*f)(t);
+        return res;
+    }
+
+    virtual double operator()(double x, double t) const {
+        double res=1;
+        for(const FuncHelper* f : factors_) res*=(*f)(x,t);
+        return res;
+    }
+
+    virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
+        std::vector<double> res(X.size(),1);
+        for(const FuncHelper* f : factors_){
+            std::vector<double> nextSummand = (*f)(X,t);
+            for(size_t i=0; i<X.size(); i++){
+                res[i]*=nextSummand[i];
+            }
+        }
+        return res;
+    }
+
+
+private:
+    std::vector<FuncHelper*> factors_;
+
+};
+
+//
+//end of ProductFuncHelper
+//
+
+
+
+//} //end namespace diffusion
