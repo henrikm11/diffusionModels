@@ -12,12 +12,24 @@
 #include "tensor_template/tensor_template.h"
 #include "neuralNetwork.h"
 
+
+
 namespace diffusion{
 
 //purely virtual base class
 class FuncHelper{
 public:
-    FuncHelper(double factor=1.0, double power=1.0, bool integral=false): factor_(factor), power_(power), integral_(integral){};
+    FuncHelper(
+        double factor=1.0,
+        double power=1.0,
+        bool multiply=false,
+        bool integral=false
+    )
+        :factor_(factor),
+        power_(power),
+        multiply_(multiply),
+        integral_(integral)
+    {}
 
 
     virtual double operator()(double) const =0;
@@ -25,11 +37,13 @@ public:
     virtual std::vector<double> operator()(const std::vector<double>&, double) const =0;
     virtual ~FuncHelper(void)=default;
 
+    friend class GeneralDiffusor;
+
 
 protected:
 
     //protected because we are returning raw owining pointer
-    virtual FuncHelper* modifiedClone(double factor=1, double power=1, bool integral=false) const =0;
+    virtual FuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const =0;
 
 
     //adjust res to factor_*res^power_
@@ -43,15 +57,17 @@ protected:
     //multiply by t to integrate
     double adjustResult_(double res, double x, double t) const {
         res = std::pow(res, power_);
-        res*=x;
         res*=factor_;
+        if(multiply_) res*=x;
         if(integral_) res*=t;
         return res;
     }
 
     double factor_; //multiply input function by factor_
     double power_;  //raise input function by power_
+    bool multiply_; //evaluate f(t)*x or just f(t) in case of one variable function applied to (x,t)
     bool integral_; //integrate input function when explicit
+  
 };
 
 
@@ -65,8 +81,9 @@ class ScalarFuncHelper : public FuncHelper{
 public:
     
     //function in one argument
-    ScalarFuncHelper(double (*const func1)(double), double factor=1.0, double power = 1.0, bool integral=false)
-        :FuncHelper(factor,power,integral),
+    ScalarFuncHelper(double (* const func1)(double), double factor=1.0, double power = 1.0, bool multiply=false, bool integral=false)
+        
+        :FuncHelper(factor, power, multiply, integral),
         func1_(func1),
         func2_(nullptr)
     {
@@ -74,8 +91,8 @@ public:
     };
 
     //function in two arguments
-    ScalarFuncHelper(double (*const func2)(double,double), double factor=1.0, double power = 1.0, bool integral=false)
-        :FuncHelper(factor,power,integral),
+    ScalarFuncHelper(double (*func2)(double,double), double factor=1.0, double power = 1.0, bool multiply=false, bool integral=false)
+        :FuncHelper(factor,power,multiply,integral),
         func1_(nullptr),
         func2_(func2)
     {
@@ -84,10 +101,11 @@ public:
 
     //copy and modify
     //clone method below
-    ScalarFuncHelper(const ScalarFuncHelper& other, double factor=1.0, double power = 1.0, bool integral=false)
+    ScalarFuncHelper(const ScalarFuncHelper& other, double factor=1.0, double power = 1.0,  bool multiply=false, bool integral=false)
         :FuncHelper(
             factor*other.factor_,
             power*other.power_,
+            multiply,
             integral
         ),
         func1_(other.func1_),
@@ -118,8 +136,8 @@ public:
 
 protected:
 
-    virtual ScalarFuncHelper* modifiedClone(double factor=1, double power=1, bool integral=false) const{
-        return new ScalarFuncHelper(*this, factor, power, integral);
+    virtual ScalarFuncHelper* modifiedClone(double factor=1, double power=1,  bool multiply=false, bool integral=false) const{
+        return new ScalarFuncHelper(*this, factor, power, multiply, integral);
     }
 
 private:
@@ -135,8 +153,8 @@ private:
 //version for functions vector<double> -> vector<double> and (vector<double>,double) -> vector<double>
 class VectorFuncHelper : public FuncHelper{
 public:
-    VectorFuncHelper(std::vector<double> (*funcVec)(const std::vector<double>&, double), double factor=1.0, double power = 1.0, bool integral=false)
-        :FuncHelper(factor, power, integral),
+    VectorFuncHelper(std::vector<double> (*funcVec)(const std::vector<double>&, double), double factor=1.0, double power = 1.0,  bool multiply=false, bool integral=false)
+        :FuncHelper(factor, power, multiply, integral),
         funcVec_(funcVec)
     {
         if(funcVec==nullptr) throw std::invalid_argument("VectorFuncHelper needs non null pointer for instantiation");
@@ -144,10 +162,11 @@ public:
 
     //copy and modify
     //clone method below
-    VectorFuncHelper(const VectorFuncHelper& other, double factor=1.0, double power = 1.0, bool integral=false)
+    VectorFuncHelper(const VectorFuncHelper& other, double factor=1.0, double power = 1.0, bool multiply=false, bool integral=false)
         :FuncHelper(
             factor*other.factor_,
             power*other.power_,
+            multiply,
             integral
         ),
         funcVec_(other.funcVec_)
@@ -170,8 +189,8 @@ public:
 
 protected:
 
-    virtual VectorFuncHelper* modifiedClone(double factor=1, double power=1, bool integral=false) const {
-        return new VectorFuncHelper(*this, factor, power, integral);
+    virtual VectorFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return new VectorFuncHelper(*this, factor, power, multiply, integral);
     }
 
 
@@ -187,8 +206,8 @@ private:
 //version for explicit variance schedule / evaluation of t -> betaMin_ + (betaMax_-betaMin_)*t/timeMax_;
 class ExplicitFuncHelper : public FuncHelper{
 public:
-    ExplicitFuncHelper(double betaMin, double betaMax, double timeMax, double factor=1, double power=1, bool integral=false)
-        :FuncHelper(factor,power,integral),
+    ExplicitFuncHelper(double betaMin, double betaMax, double timeMax, double factor=1, double power=1,  bool multiply=false, bool integral=false)
+        :FuncHelper(factor,power,multiply,integral),
         betaMin_(betaMin),
         betaMax_(betaMax),
         timeMax_(timeMax)
@@ -202,10 +221,11 @@ public:
         return;
     }
 
-    ExplicitFuncHelper(const ExplicitFuncHelper& other, double factor=1, double power=1, bool integral=false)
+    ExplicitFuncHelper(const ExplicitFuncHelper& other, double factor=1, double power=1,  bool multiply=false, bool integral=false)
         :FuncHelper(
             factor*other.factor_,
             power*other.power_,
+            multiply,
             integral
         ),
         betaMin_(other.betaMin_),
@@ -234,8 +254,8 @@ public:
 
 
 protected:
-    virtual ExplicitFuncHelper* modifiedClone(double factor=1, double power=1, bool integral=false) const {
-        return new ExplicitFuncHelper(*this, factor, power, integral);
+    virtual ExplicitFuncHelper* modifiedClone(double factor=1, double power=1,  bool multiply=false, bool integral=false) const {
+        return new ExplicitFuncHelper(*this, factor, power, multiply, integral);
     }
 
 
@@ -278,10 +298,11 @@ public:
         return std::vector<double>(res_tensor);
     }
 
-    NeuralNetFuncHelper(const NeuralNetFuncHelper& other, double factor=1, double power=1, bool integral=false)
+    NeuralNetFuncHelper(const NeuralNetFuncHelper& other, double factor=1, double power=1,  bool multiply=false, bool integral=false)
         :FuncHelper(
             factor*other.factor_,
             power*other.power_,
+            multiply,
             integral
         ),
         neuralNet_(other.neuralNet_)
@@ -289,8 +310,8 @@ public:
 
 protected:
 
-    virtual NeuralNetFuncHelper* modifiedClone(double factor=1, double power=1, bool integral=false) const {
-        return new NeuralNetFuncHelper(*this, factor, power, integral);
+    virtual NeuralNetFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return new NeuralNetFuncHelper(*this, factor, power, multiply, integral);
     }
 
 private:
@@ -334,10 +355,11 @@ public:
         return res;
     }
 
-    SumFuncHelper(const SumFuncHelper& other, double factor=1, double power=1, bool integral=false)
+    SumFuncHelper(const SumFuncHelper& other, double factor=1, double power=1, bool multiply=false, bool integral=false)
         :FuncHelper(
             factor*other.factor_,
             power*other.power_,
+            multiply,
             integral
         ),
         summands_(other.summands_)
@@ -345,8 +367,8 @@ public:
 
 protected:
 
-    virtual SumFuncHelper* modifiedClone(double factor=1, double power=1, bool integral=1) const {
-        return new SumFuncHelper(*this, factor, power, integral);
+    virtual SumFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false)const {
+        return new SumFuncHelper(*this, factor, power, multiply, integral);
     }
 
 
@@ -388,10 +410,11 @@ public:
         return res;
     }
 
-    ProductFuncHelper(const ProductFuncHelper& other, double factor=1, double power=1, bool integral=false)
+    ProductFuncHelper(const ProductFuncHelper& other, double factor=1, double power=1, bool multiply=false, bool integral=false)
         :FuncHelper(
             factor*other.factor_,
             power*other.power_,
+            multiply,
             integral
         ),
         factors_(other.factors_)
@@ -399,8 +422,8 @@ public:
 
 protected:
 
-    virtual ProductFuncHelper* modifiedClone(double factor=1, double power=1, bool integral=1) const {
-        return new ProductFuncHelper(*this, factor, power, integral);
+    virtual ProductFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return new ProductFuncHelper(*this, factor, power, multiply, integral);
     }
 
 
