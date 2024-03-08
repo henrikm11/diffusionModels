@@ -9,30 +9,54 @@
 
 //implementation of GeneralDiffusor
 
-diffusion::GeneralDiffusor::GeneralDiffusor(
-    diffusion::FuncHelper driftFct,
-    diffusion::FuncHelper diffusionFct
-)
-    :driftFct_(driftFct),
-    diffusionFct_(diffusionFct),
-    rng_(std::random_device{}())
-{
-    return;
-}
 
+
+/*
+//constructors
+*/
 diffusion::GeneralDiffusor::GeneralDiffusor(
     double (*driftFct)(double,double),
     double (*diffusionFct)(double, double)
 )
-    :driftFct_(driftFct),
-    diffusionFct_(diffusionFct),
+    :rng_(std::random_device{}())
+{
+    driftFct_=std::make_unique<diffusion::ScalarFuncHelper>(driftFct);
+    diffusionFct_=std::make_unique<diffusion::ScalarFuncHelper>(diffusionFct);
+    return;
+}
+
+diffusion::GeneralDiffusor::GeneralDiffusor(
+    std::vector<double> (*driftFct)(const std::vector<double>&, double),
+    std::vector<double> (*diffusionFct)(const std::vector<double>&,double)
+)
+    :rng_(std::random_device{}())
+{
+    driftFct_=std::make_unique<diffusion::VectorFuncHelper>(driftFct);
+    diffusionFct_=std::make_unique<diffusion::VectorFuncHelper>(diffusionFct);
+    return;
+}
+
+diffusion::GeneralDiffusor::GeneralDiffusor(
+    const diffusion::FuncHelper& driftFct,
+    const diffusion::FuncHelper& diffusionFct
+)
+    :
+    driftFct_(driftFct.modifiedClone(1.0,1.0,driftFct.multiply_)), //this keeps the original function
+    diffusionFct_(diffusionFct.modifiedClone(1.0,1.0,diffusionFct.multiply_)),  
     rng_(std::random_device{}())
 {
     return;
 }
 
+/*
+//destructor
+*/
 diffusion::GeneralDiffusor::~GeneralDiffusor(void){return;}
 
+
+/*
+//public member functions
+*/
 double diffusion::GeneralDiffusor::getRandomNormal(){
     std::normal_distribution<double> dist(0,1); 
     return dist(rng_);
@@ -46,8 +70,8 @@ double diffusion::GeneralDiffusor::diffusionStep(
 {
     double z = getRandomNormal();
     double outputState = inputState;
-    outputState+=driftFct_(inputState,time)*timeStep;
-    outputState+=diffusionFct_(inputState,time)*sqrt(timeStep)*z;
+    outputState+=((*driftFct_)(inputState,time)*timeStep);
+    outputState+=((*diffusionFct_)(inputState,time)*sqrt(timeStep)*z);
     return outputState;
 }
 
@@ -56,12 +80,13 @@ std::vector<double> diffusion::GeneralDiffusor::diffusionStep(
     double time,
     double timeStep
 ){
-    std::vector<double> outputState = driftFct_(inputState,time); //overload in FuncHelper resolves this!
+    std::vector<double> outputState = (*driftFct_)(inputState,time); //overload in FuncHelper resolves this!
     for(size_t i=0; i<outputState.size(); i++){
         outputState[i]*=timeStep;
+        outputState[i]+=inputState.at(i);
     }
 
-    std::vector<double> noise = diffusionFct_(inputState,time);
+    std::vector<double> noise = (*diffusionFct_)(inputState,time);
     for(size_t i=0; i<noise.size(); i++){
         double z = getRandomNormal();
         outputState[i]+=(noise[i]*sqrt(timeStep)*z);
@@ -118,6 +143,8 @@ std::vector<double> diffusion::GeneralDiffusor::sample(
 //GeneralDiffusor
 //end of implementation
 
+
+
 //OUDiffusor
 //start of implementation
 
@@ -128,23 +155,25 @@ diffusion::OUDiffusor::OUDiffusor(
     double (*varianceScheduleIntegralFct)(double)  
 )
     :diffusion::GeneralDiffusor(
-        diffusion::FuncHelper(varianceScheduleFct, -0.5, 1.0),
-        diffusion::FuncHelper(varianceScheduleFct, 1.0, 0.5) 
-    ),
-    varianceScheduleIntegralFct_(varianceScheduleIntegralFct)
-{}
+        diffusion::ScalarFuncHelper(varianceScheduleFct, -0.5, 1.0,true),
+        diffusion::ScalarFuncHelper(varianceScheduleFct, 1.0, 0.5,false)
+    )
+{
+    varianceScheduleIntegralFct_=std::make_unique<diffusion::ScalarFuncHelper>(varianceScheduleIntegralFct);
+}
 
 diffusion::OUDiffusor::OUDiffusor(
-    FuncHelper varianceScheduleFct,
-    FuncHelper varianceScheduleIntegralFct
+    const ScalarFuncHelper& varianceScheduleFct,
+    const ScalarFuncHelper& varianceScheduleIntegralFct
 )
     :
     diffusion::GeneralDiffusor::GeneralDiffusor(
-        diffusion::FuncHelper(varianceScheduleFct, -0.5, 1.0),
-        diffusion::FuncHelper(varianceScheduleFct, 1.0, 0.5)
-    ),
-    varianceScheduleIntegralFct_(varianceScheduleIntegralFct)
-{}
+        diffusion::ScalarFuncHelper(varianceScheduleFct, -0.5, 1.0,true),
+        diffusion::ScalarFuncHelper(varianceScheduleFct, 1.0, 0.5,false)
+    )
+{
+    varianceScheduleIntegralFct_=std::make_unique<diffusion::ScalarFuncHelper>(varianceScheduleIntegralFct);
+}
 
 diffusion::OUDiffusor::~OUDiffusor(){}
 
@@ -155,7 +184,7 @@ double diffusion::OUDiffusor::sample(
 )
 {
     double z = getRandomNormal();
-    double rate = varianceScheduleIntegralFct_(time);
+    double rate = (*varianceScheduleIntegralFct_)(time);
     double outputSample = exp(-0.5*rate)*inputSample + (1-exp(-rate))*z;
     
     return outputSample;
@@ -179,24 +208,6 @@ std::vector<double> diffusion::OUDiffusor::sample(
 //end of implementation
 
 
-//LinearDiffusor
-//begin of implementation
-
-//varianceScheduleFct FuncHelper(betaMin, betaMax, timeMax)
-
-diffusion::LinearDiffusor::LinearDiffusor(
-    double betaMin,
-    double betaMax,
-    double timeMax
-)
-    :OUDiffusor(
-        FuncHelper(betaMin, betaMax, timeMax),
-        FuncHelper(betaMin, betaMax, timeMax, 1.0, 1.0, true)
-    ),
-    betaMin_(betaMin),
-    betaMax_(betaMax),
-    timeMax_(timeMax)
-{}
 
 
 

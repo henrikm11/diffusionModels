@@ -4,18 +4,25 @@
 header file for forward diffusion
 */
 
-#pragma once
 
+
+
+#pragma once
 
 #include <vector>
 #include <random>
+#include <memory>
 #include <stdexcept>
+#include <type_traits> //has std::enable_if
 #include "FuncHelper.h"
+#include "neuralNetwork.h"
+
+
+
 
 //forward diffusion along SDE
 // dX = \mu(X,t)*dt + \sigma(X,t)*dW_t 
 // where W_t is the standard Wiener process
-
 namespace diffusion{
 
 
@@ -24,15 +31,28 @@ namespace diffusion{
 // W_t standard Wiener process
 class GeneralDiffusor{
 public:
-    GeneralDiffusor(
-        diffusion::FuncHelper driftFct,
-        diffusion::FuncHelper diffusionFct
-    );
+    //overloads of constructor depending on input format of drift and diffusion
+   
     GeneralDiffusor(
         double (*driftFct)(double,double),
         double (*diffusionFct)(double, double)
     );
-    virtual ~GeneralDiffusor(void);
+
+    GeneralDiffusor(
+        std::vector<double> (*driftFct)(const std::vector<double>&, double),
+        std::vector<double> (*diffusionFct)(const std::vector<double>&,double)
+    );
+
+    
+    GeneralDiffusor(
+        const diffusion::FuncHelper& driftFct,
+        const diffusion::FuncHelper& diffusionFct
+    );
+    
+    
+   
+    
+    virtual ~GeneralDiffusor(void); //create vtable
 
     /// @brief returns pseudo random number ~ N(0,1)
     double getRandomNormal(void);
@@ -79,14 +99,16 @@ public:
 
 private:
     std::mt19937 rng_;
-    diffusion::FuncHelper driftFct_;
-    diffusion::FuncHelper diffusionFct_;
+    std::unique_ptr<FuncHelper> driftFct_;
+    //diffusion::FuncHelper driftFct_;
+    std::unique_ptr<FuncHelper> diffusionFct_;
+    //diffusion::FuncHelper diffusionFct_;
 };
 
 /*
-
-END GeneralDiffusor
-
+//
+//END GeneralDiffusor
+//
 */
 
 
@@ -95,6 +117,8 @@ END GeneralDiffusor
 BEGIN OUDiffusor
 
 */
+
+
 
 
 
@@ -108,10 +132,12 @@ public:
         double (*varianceScheduleFct)(double),
         double (*varianceScheduleIntegralFct)(double)
     );
+
     OUDiffusor(
-        FuncHelper varianceScheduleFct,
-        FuncHelper varianceScheduleIntegralFct
+        const ScalarFuncHelper& varianceScheduleFct,
+        const ScalarFuncHelper& varianceScheduleIntegralFct
     );
+    
     virtual ~OUDiffusor(void);
 
     /// @brief samples from forward diffusion process
@@ -129,41 +155,13 @@ public:
     );
 
 private:
-    FuncHelper varianceScheduleIntegralFct_;
+    std::unique_ptr<ScalarFuncHelper> varianceScheduleIntegralFct_;
 };
-
-
-//ok up to here
-
-
-
-
-//diffusor with linear variance schedule derived from GeneralDiffusor
-//beta(t)=betaMin_+(betaMax_-betaMin_)*t/timeMax_
-
-
-class LinearDiffusor : public OUDiffusor{
-public:
-    LinearDiffusor(
-        double betaMin,
-        double betaMax,
-        double timeMax
-    );
-
-private:
-    //somewhat redundant as these are stored in FuncHelper,
-    //but that might be inconvenient to access later
-    double betaMin_;
-    double betaMax_;
-    double timeMax_;
-    
-};
-
-
 
 
 }
 //end of namespace diffusion
+
 
 
 
