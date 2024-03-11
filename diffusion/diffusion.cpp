@@ -175,6 +175,23 @@ diffusion::OUDiffusor::OUDiffusor(
     varianceScheduleIntegralFct_=std::make_unique<diffusion::ScalarFuncHelper>(varianceScheduleIntegralFct);
 }
 
+diffusion::OUDiffusor::OUDiffusor(
+    double betaMin,
+    double betaMax,
+    double timeMax
+)
+    :diffusion::GeneralDiffusor::GeneralDiffusor(
+        diffusion::ExplicitFuncHelper(betaMin, betaMax, timeMax, -0.5, 1.0, true, false),
+        diffusion::ExplicitFuncHelper(betaMin, betaMax, timeMax, 1.0, 0.5, false, false)
+    )
+{
+    varianceScheduleIntegralFct_=
+        std::make_unique<diffusion::ExplicitFuncHelper>(
+            betaMin, betaMax, timeMax, 1.0, 1.0, false, true
+    );
+    return;
+}
+
 diffusion::OUDiffusor::~OUDiffusor(){}
 
 
@@ -206,6 +223,25 @@ std::vector<double> diffusion::OUDiffusor::sample(
 
 //OUDiffusor
 //end of implementation
+
+
+
+
+
+
+//LinearDiffusor
+//begin of implementation
+
+//varianceScheduleFct FuncHelper(betaMin, betaMax, timeMax)
+
+diffusion::LinearDiffusor::LinearDiffusor(
+    double betaMin,
+    double betaMax,
+    double timeMax
+)
+    :OUDiffusor(betaMin,betaMax,timeMax)
+{}
+
 
 
 

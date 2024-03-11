@@ -137,6 +137,8 @@ public:
         const ScalarFuncHelper& varianceScheduleFct,
         const ScalarFuncHelper& varianceScheduleIntegralFct
     );
+
+
     
     virtual ~OUDiffusor(void);
 
@@ -153,10 +155,37 @@ public:
         const std::vector<double>& inputSample,
         double time
     );
-
+protected:
+    //only used to construct LinearDiffusor
+    OUDiffusor(
+        double betaMin,
+        double betaMax,
+        double timeMax
+    );
 private:
-    std::unique_ptr<ScalarFuncHelper> varianceScheduleIntegralFct_;
+    std::unique_ptr<FuncHelper> varianceScheduleIntegralFct_;
 };
+
+
+
+
+//separated into own class purely for clarity
+//diffusor with linear variance schedule derived from GeneralDiffusor
+//beta(t)=betaMin_+(betaMax_-betaMin_)*t/timeMax_
+
+
+class LinearDiffusor : public OUDiffusor{
+public:
+    LinearDiffusor(
+        double betaMin,
+        double betaMax,
+        double timeMax
+    );    
+};
+
+
+
+
 
 
 }
