@@ -11,6 +11,7 @@
 #include <memory>
 #include "tensor_template/tensor_template.h"
 #include "neuralNetwork.h"
+#include "diffusion.h"
 
 
 
@@ -43,13 +44,13 @@ public:
     bool getMultiply(void){return multiply_;}
     bool getIntegral(void){return integral_;}
 
-    friend class GeneralDiffusor;
+   
 
-protected:
 
     //protected because we are returning raw owining pointer
-    virtual FuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const =0;
-
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const =0;
+    
+protected:
 
     //adjust res to factor_*res^power_
     double adjustResult_(double res) const {
@@ -139,10 +140,8 @@ public:
         return res;
     }
 
-protected:
-
-    virtual ScalarFuncHelper* modifiedClone(double factor=1, double power=1,  bool multiply=false, bool integral=false) const{
-        return new ScalarFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1,  bool multiply=false, bool integral=false) const{
+        return std::unique_ptr<ScalarFuncHelper> (new ScalarFuncHelper(*this, factor, power, multiply, integral));
     }
 
 private:
@@ -192,10 +191,9 @@ public:
         return funcVec_(X,t);
     }
 
-protected:
 
-    virtual VectorFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
-        return new VectorFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return std::unique_ptr<FuncHelper> (new VectorFuncHelper(*this, factor, power, multiply, integral));
     }
 
 
@@ -257,10 +255,8 @@ public:
         return res;
     }
 
-
-protected:
-    virtual ExplicitFuncHelper* modifiedClone(double factor=1, double power=1,  bool multiply=false, bool integral=false) const {
-        return new ExplicitFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1,  bool multiply=false, bool integral=false) const {
+        return std::unique_ptr<FuncHelper> (new ExplicitFuncHelper(*this, factor, power, multiply, integral));
     }
 
 
@@ -286,7 +282,9 @@ private:
 //version to use predict of neural network
 class NeuralNetFuncHelper : public FuncHelper{
 public:
-    NeuralNetFuncHelper(std::shared_ptr<vanillaNeuralNet::neuralNetworkWeightedMSE> neuralNet):neuralNet_(neuralNet){};
+    //friend class diffusionModel::ScoreModel;
+
+    NeuralNetFuncHelper(vanillaNeuralNet::neuralNetworkWeightedMSE& neuralNet):neuralNet_(neuralNet){};
 
     virtual double operator()(double x, double t) const {
         std::vector<double> X = {x};
@@ -299,7 +297,7 @@ public:
 
     virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
         Tensor<double,1> X_tensor(X);
-        Tensor<double,1> res_tensor = neuralNet_->predict(X_tensor,t,true);
+        Tensor<double,1> res_tensor = neuralNet_.predict(X_tensor,t,true);
         return std::vector<double>(res_tensor);
     }
 
@@ -313,14 +311,12 @@ public:
         neuralNet_(other.neuralNet_)
     {}
 
-protected:
-
-    virtual NeuralNetFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
-        return new NeuralNetFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return std::unique_ptr<FuncHelper> (new NeuralNetFuncHelper(*this, factor, power, multiply, integral));
     }
 
 private:
-    std::shared_ptr<vanillaNeuralNet::neuralNetworkWeightedMSE> neuralNet_;
+    vanillaNeuralNet::neuralNetworkWeightedMSE& neuralNet_;
 };
 
 //
@@ -335,7 +331,7 @@ private:
 //version to sum across vector of FuncHelpers
 class SumFuncHelper : public FuncHelper{
 public:
-    SumFuncHelper(const std::vector<std::shared_ptr<FuncHelper>> summands):summands_(summands){};
+    SumFuncHelper(const std::vector<FuncHelper*> summands):summands_(summands){};
 
     virtual double operator()(double t) const {
         double res=0;
@@ -370,15 +366,14 @@ public:
         summands_(other.summands_)
     {}
 
-protected:
 
-    virtual SumFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false)const {
-        return new SumFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false)const {
+        return std::unique_ptr<FuncHelper> (new SumFuncHelper(*this, factor, power, multiply, integral));
     }
 
 
 private:
-    std::vector<std::shared_ptr<FuncHelper>> summands_;
+    std::vector<FuncHelper*> summands_;
 
 };
 
@@ -390,7 +385,7 @@ private:
 //version to multiply accross vector of FuncHelpers
 class ProductFuncHelper : public FuncHelper{
 public:
-    ProductFuncHelper(const std::vector<std::shared_ptr<FuncHelper>> factors):factors_(factors){};
+    ProductFuncHelper(const std::vector<FuncHelper*> factors):factors_(factors){};
 
     virtual double operator()(double t) const {
         double res=1;
@@ -425,16 +420,13 @@ public:
         factors_(other.factors_)
     {}
 
-protected:
-
-    virtual ProductFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
-        return new ProductFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return std::unique_ptr<FuncHelper> (new ProductFuncHelper(*this, factor, power, multiply, integral));
     }
 
 
-
 private:
-    std::vector<std::shared_ptr<FuncHelper>> factors_;
+    std::vector<FuncHelper*> factors_;
 
 };
 
@@ -444,7 +436,7 @@ private:
 class TimeShiftFuncHelper : public FuncHelper {
 public:
     TimeShiftFuncHelper(
-        std::shared_ptr<FuncHelper> originalFct,
+        FuncHelper* originalFct,
         double shift=0,
         double speed=1
     )
@@ -483,14 +475,13 @@ public:
         speed_(other.speed_)
     {}
 
-protected:
-    virtual TimeShiftFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
-        return new TimeShiftFuncHelper(*this, factor, power, multiply, integral);
+    virtual std::unique_ptr<FuncHelper> modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return std::unique_ptr<FuncHelper> (new TimeShiftFuncHelper(*this, factor, power, multiply, integral));
     }
 
 
 private:
-    std::shared_ptr<FuncHelper> originalFct_;
+    FuncHelper* originalFct_;
     double shift_;
     double speed_;
 };
