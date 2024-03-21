@@ -32,13 +32,18 @@ public:
     {}
 
 
-    virtual double operator()(double) const =0;
+    virtual double operator()(double) const = 0;
     virtual double operator()(double, double) const =0;
     virtual std::vector<double> operator()(const std::vector<double>&, double) const =0;
     virtual ~FuncHelper(void)=default;
 
-    friend class GeneralDiffusor;
+    //only required for TimeShiftFuncHeloer constructor for obscure accessibility rules for protected members
+    double getFactor(void){return factor_;}
+    double getPower(void){return power_;}
+    bool getMultiply(void){return multiply_;}
+    bool getIntegral(void){return integral_;}
 
+    friend class GeneralDiffusor;
 
 protected:
 
@@ -281,7 +286,7 @@ private:
 //version to use predict of neural network
 class NeuralNetFuncHelper : public FuncHelper{
 public:
-    NeuralNetFuncHelper(vanillaNeuralNet::neuralNetworkWeightedMSE* neuralNet):neuralNet_(neuralNet){};
+    NeuralNetFuncHelper(std::shared_ptr<vanillaNeuralNet::neuralNetworkWeightedMSE> neuralNet):neuralNet_(neuralNet){};
 
     virtual double operator()(double x, double t) const {
         std::vector<double> X = {x};
@@ -315,7 +320,7 @@ protected:
     }
 
 private:
-    vanillaNeuralNet::neuralNetworkWeightedMSE* neuralNet_;
+    std::shared_ptr<vanillaNeuralNet::neuralNetworkWeightedMSE> neuralNet_;
 };
 
 //
@@ -330,23 +335,23 @@ private:
 //version to sum across vector of FuncHelpers
 class SumFuncHelper : public FuncHelper{
 public:
-    SumFuncHelper(const std::vector<FuncHelper*> summands):summands_(summands){};
+    SumFuncHelper(const std::vector<std::shared_ptr<FuncHelper>> summands):summands_(summands){};
 
     virtual double operator()(double t) const {
         double res=0;
-        for(const FuncHelper* f : summands_) res+=(*f)(t);
+        for(const auto f : summands_) res+=(*f)(t);
         return res;
     }
 
     virtual double operator()(double x, double t) const {
         double res=0;
-        for(const FuncHelper* f : summands_) res+=(*f)(x,t);
+        for(const auto f : summands_) res+=(*f)(x,t);
         return res;
     }
 
     virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
         std::vector<double> res(X.size(),0);
-        for(const FuncHelper* f : summands_){
+        for(const auto f : summands_){
             std::vector<double> nextSummand = (*f)(X,t);
             for(size_t i=0; i<X.size(); i++){
                 res[i]+=nextSummand[i];
@@ -373,7 +378,7 @@ protected:
 
 
 private:
-    std::vector<FuncHelper*> summands_;
+    std::vector<std::shared_ptr<FuncHelper>> summands_;
 
 };
 
@@ -385,23 +390,23 @@ private:
 //version to multiply accross vector of FuncHelpers
 class ProductFuncHelper : public FuncHelper{
 public:
-    ProductFuncHelper(const std::vector<FuncHelper*> factors):factors_(factors){};
+    ProductFuncHelper(const std::vector<std::shared_ptr<FuncHelper>> factors):factors_(factors){};
 
     virtual double operator()(double t) const {
         double res=1;
-        for(const FuncHelper* f : factors_) res*=(*f)(t);
+        for(const auto f : factors_) res*=(*f)(t);
         return res;
     }
 
     virtual double operator()(double x, double t) const {
         double res=1;
-        for(const FuncHelper* f : factors_) res*=(*f)(x,t);
+        for(const auto f : factors_) res*=(*f)(x,t);
         return res;
     }
 
     virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
         std::vector<double> res(X.size(),1);
-        for(const FuncHelper* f : factors_){
+        for(const auto f : factors_){
             std::vector<double> nextSummand = (*f)(X,t);
             for(size_t i=0; i<X.size(); i++){
                 res[i]*=nextSummand[i];
@@ -429,9 +434,68 @@ protected:
 
 
 private:
-    std::vector<FuncHelper*> factors_;
+    std::vector<std::shared_ptr<FuncHelper>> factors_;
 
 };
+
+
+
+
+class TimeShiftFuncHelper : public FuncHelper {
+public:
+    TimeShiftFuncHelper(
+        std::shared_ptr<FuncHelper> originalFct,
+        double shift=0,
+        double speed=1
+    )
+        :FuncHelper(
+            originalFct->getFactor(),
+            originalFct->getPower(),
+            originalFct->getMultiply(),
+            originalFct->getIntegral() 
+        ),
+        originalFct_(originalFct), 
+        shift_(shift),
+        speed_(speed)
+    {}
+
+    virtual double operator()(double t) const {
+        return (*originalFct_)(shift_+speed_*t);
+    }
+
+    virtual double operator()(double x, double t) const {
+        return (*originalFct_)(x,shift_+speed_*t);
+    }
+
+    virtual std::vector<double> operator()(const std::vector<double>& X, double t) const {
+        return (*originalFct_)(X,shift_+speed_*t);
+    }
+
+    TimeShiftFuncHelper(const TimeShiftFuncHelper& other, double factor=1, double power=1, bool multiply=false, bool integral=false)
+        :FuncHelper(
+            factor*other.factor_,
+            power*other.power_,
+            multiply,
+            integral
+        ),
+        originalFct_(other.originalFct_),
+        shift_(other.shift_),
+        speed_(other.speed_)
+    {}
+
+protected:
+    virtual TimeShiftFuncHelper* modifiedClone(double factor=1, double power=1, bool multiply=false, bool integral=false) const {
+        return new TimeShiftFuncHelper(*this, factor, power, multiply, integral);
+    }
+
+
+private:
+    std::shared_ptr<FuncHelper> originalFct_;
+    double shift_;
+    double speed_;
+};
+
+
 
 //
 //end of ProductFuncHelper
