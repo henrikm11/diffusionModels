@@ -6,6 +6,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "diffusion.h"
+#include "FuncHelper.h"
 
 //implementation of GeneralDiffusor
 
@@ -20,8 +21,12 @@ diffusion::GeneralDiffusor::GeneralDiffusor(
 )
     :rng_(std::random_device{}())
 {
-    driftFct_=std::make_unique<diffusion::ScalarFuncHelper>(driftFct);
-    diffusionFct_=std::make_unique<diffusion::ScalarFuncHelper>(diffusionFct);
+    diffusion::ScalarFuncHelper* driftPtr = new diffusion::ScalarFuncHelper(driftFct);
+    driftFct_ = std::unique_ptr<diffusion::FuncHelper>(driftPtr);
+    //driftFct_=std::make_unique<diffusion::ScalarFuncHelper>(driftFct);
+    diffusion::ScalarFuncHelper* diffusionPtr = new diffusion::ScalarFuncHelper(diffusionFct);
+    diffusionFct_=std::unique_ptr<diffusion::FuncHelper>(diffusionPtr);
+    //diffusionFct_=std::make_unique<diffusion::ScalarFuncHelper>(diffusionFct);
     return;
 }
 
@@ -31,8 +36,10 @@ diffusion::GeneralDiffusor::GeneralDiffusor(
 )
     :rng_(std::random_device{}())
 {
-    driftFct_=std::make_unique<diffusion::VectorFuncHelper>(driftFct);
-    diffusionFct_=std::make_unique<diffusion::VectorFuncHelper>(diffusionFct);
+    diffusion::VectorFuncHelper* driftPtr = new diffusion::VectorFuncHelper(driftFct);
+    driftFct_=std::unique_ptr<diffusion::VectorFuncHelper>(driftPtr);
+    diffusion::VectorFuncHelper* diffusionPtr = new diffusion::VectorFuncHelper(diffusionFct);
+    diffusionFct_=std::unique_ptr<diffusion::VectorFuncHelper>(diffusionPtr);
     return;
 }
 
@@ -47,6 +54,14 @@ diffusion::GeneralDiffusor::GeneralDiffusor(
 {
     return;
 }
+
+diffusion::GeneralDiffusor::GeneralDiffusor(
+    const GeneralDiffusor& other
+)
+    :rng_(other.rng_),
+    driftFct_(other.driftFct_->modifiedClone()),
+    diffusionFct_(other.diffusionFct_->modifiedClone())
+{}
 
 /*
 //destructor
@@ -159,7 +174,8 @@ diffusion::OUDiffusor::OUDiffusor(
         diffusion::ScalarFuncHelper(varianceScheduleFct, 1.0, 0.5,false)
     )
 {
-    varianceScheduleIntegralFct_=std::make_unique<diffusion::ScalarFuncHelper>(varianceScheduleIntegralFct);
+    diffusion::ScalarFuncHelper* varianceScheduleIntegralPtr = new diffusion::ScalarFuncHelper(varianceScheduleIntegralFct);
+    varianceScheduleIntegralFct_=std::unique_ptr<diffusion::ScalarFuncHelper>(varianceScheduleIntegralPtr);
 }
 
 diffusion::OUDiffusor::OUDiffusor(
@@ -172,7 +188,9 @@ diffusion::OUDiffusor::OUDiffusor(
         diffusion::ScalarFuncHelper(varianceScheduleFct, 1.0, 0.5,false)
     )
 {
-    varianceScheduleIntegralFct_=std::make_unique<diffusion::ScalarFuncHelper>(varianceScheduleIntegralFct);
+    //varianceScheduleIntegralFct_=std::make_unique<diffusion::ScalarFuncHelper>(varianceScheduleIntegralFct);
+    diffusion::ScalarFuncHelper* varianceScheduleIntegralPtr = new diffusion::ScalarFuncHelper(varianceScheduleIntegralFct);
+    varianceScheduleIntegralFct_=std::unique_ptr<diffusion::ScalarFuncHelper>(varianceScheduleIntegralPtr);
 }
 
 diffusion::OUDiffusor::OUDiffusor(
@@ -185,12 +203,17 @@ diffusion::OUDiffusor::OUDiffusor(
         diffusion::ExplicitFuncHelper(betaMin, betaMax, timeMax, 1.0, 0.5, false, false)
     )
 {
+    diffusion::ExplicitFuncHelper* varianceScheduleIntegralPtr = new diffusion::ExplicitFuncHelper(betaMin, betaMax, timeMax, 1.0, 1.0, false, true);
+    varianceScheduleIntegralFct_ = std::unique_ptr<diffusion::ExplicitFuncHelper>(varianceScheduleIntegralPtr);
+    /*
     varianceScheduleIntegralFct_=
         std::make_unique<diffusion::ExplicitFuncHelper>(
             betaMin, betaMax, timeMax, 1.0, 1.0, false, true
     );
+    */
     return;
 }
+
 
 diffusion::OUDiffusor::~OUDiffusor(){}
 

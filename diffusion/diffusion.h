@@ -12,10 +12,10 @@ header file for forward diffusion
 #include <vector>
 #include <random>
 #include <memory>
-#include <stdexcept>
-#include <type_traits> //has std::enable_if
-#include "FuncHelper.h"
 #include "neuralNetwork.h"
+
+
+
 
 
 
@@ -25,6 +25,11 @@ header file for forward diffusion
 // where W_t is the standard Wiener process
 namespace diffusion{
 
+//forward declarations
+class FuncHelper;
+class ScalarFuncHelper;
+class VectorFuncHelper;
+class ExplicitFuncHelper;
 
 //base class for diffusion along
 // dX = drift(X,t)dt + diffusion(X,t)dW_t,
@@ -47,6 +52,12 @@ public:
     GeneralDiffusor(
         const diffusion::FuncHelper& driftFct,
         const diffusion::FuncHelper& diffusionFct
+    );
+
+    //copy constructor needs to be custom to call modifiedClone FuncHelper
+    //since FuncHelper has deleted copy constructor
+    GeneralDiffusor(
+        const GeneralDiffusor& other
     );
     
     
@@ -83,7 +94,7 @@ public:
 
     //functions to sample from process
     //virtual because this can be sped up significantly for more specific processes
-    
+
     virtual double sample(
         double inputState,
         double time,
@@ -99,10 +110,8 @@ public:
 
 private:
     std::mt19937 rng_;
-    std::unique_ptr<FuncHelper> driftFct_;
-    //diffusion::FuncHelper driftFct_;
+    std::unique_ptr<FuncHelper> driftFct_; 
     std::unique_ptr<FuncHelper> diffusionFct_;
-    //diffusion::FuncHelper diffusionFct_;
 };
 
 /*
