@@ -1,4 +1,4 @@
-# DiffusionModels via Score Matching
+# Diffusion Models via Score Matching
 
 ## Brief Intro to Diffusion
 
@@ -25,14 +25,23 @@ For choices of $\mu$ and $\sigma$ such that  the distribution of $X_T$ is approx
 \this converts the problem of sampling from $\pi$ into the problem of approximating the score function $\nabla_x \log p (Y_t,T-t)$.
 This is because if we know both the distribution of $X_T$ and the score approximately, we can use the time reversed diffusion to sample backwards in time to an approximation of the original distribution $\pi$.
 
+
 Amazingly, it turns out that the problem of approximating the score function can be converted into supervised learning problem.
-More details to follow soon
+There is different approaches on how to see this, the one taken by our implementation is to use the denoising score matching which has the objective to minimize
+
+$$
+E = \int_t^T \int\{\mathbb{R}^d} \int_{\mathbb{R}^d} | s_\theta(x,t) - \nabla_x p(x,t | x_0)|^2 p(x,t | x_0) d \pi(x_0) dx dt,
+$$
+
+over some parametrized class of function $s_\theta$. (In practice this will be some type of neural network.)
+
+For explicit (simple) choices for the functions $\mu$ and $\sigma$ one has an explicit formula for the transition kernel $p(x,t | x_0)$ so that the objective is admissible to be approximated via Monte Carlo.
 
 
 
 ## Our Implementation
 
-We provide a already fairly general, but als easily extendable, framework for diffusion processes. The interface for this can be found in diffusion.h
+We provide an already fairly general, but als easily extendable, framework for diffusion processes. The interface for this can be found in diffusion.h
 This in turn relies on a framework for some basic function objects that allow us convenient and simple arithmetics for the functions involved. The interface and documentation for this can be found in FuncHelper.h which provides polymorphic wrapper classes for functions as they occur in diffusion processes.
 
 
