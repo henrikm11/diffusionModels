@@ -30,7 +30,7 @@ Amazingly, it turns out that the problem of approximating the score function can
 There is different approaches on how to see this, the one taken by our implementation is to use the denoising score matching which has the objective to minimize
 
 $$
-E = \int_{t_min}^{t_max} \int_\{\mathbb{R}^d} \int_{\mathbb{R}^d} | s_\theta(x,t) - \nabla_x p(x,t | x_0)|^2 p(x,t | x_0) d \pi(x_0) dx dt,
+E = \int_{t_{min}}^{t_{max}} \int_\{\mathbb{R}^d} \int_{\mathbb{R}^d} | s_\theta(x,t) - \nabla_x p(x,t | x_0)|^2 p(x,t | x_0) d \pi(x_0) dx dt,
 $$
 
 over some parametrized class of function $s_\theta$. (In practice this will be some type of neural network.)
