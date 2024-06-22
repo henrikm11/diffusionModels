@@ -21,8 +21,8 @@ $$
 
 where $p(\cdot,t)$ denotes the density of $X_t$ which solves the associated Fokker--Planck equation.
 
-For choices of $\mu$ and $\sigma$ such that  the distribution of$X_T$ is approximately known for large $T$, e.g. the Ornstein--Uhlenbeck process, 
-\this converts the problem of sampling from $\pi$ into the problem of approximating the \emph{score function} $ \nabla_x \log p (Y_t,T-t)$.
+For choices of $\mu$ and $\sigma$ such that  the distribution of $X_T$ is approximately known for large $T$, e.g. the Ornstein--Uhlenbeck process, 
+\this converts the problem of sampling from $\pi$ into the problem of approximating the score function $\nabla_x \log p (Y_t,T-t)$.
 This is because if we know both the distribution of $X_T$ and the score approximately, we can use the time reversed diffusion to sample backwards in time to an approximation of the original distribution $\pi$.
 
 Amazingly, it turns out that the problem of approximating the score function can be converted into supervised learning problem.
