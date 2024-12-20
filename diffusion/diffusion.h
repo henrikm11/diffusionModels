@@ -1,206 +1,180 @@
-//diffiusion.h
-
-/*
-header file for forward diffusion
-*/
-
-
-
-
+//diffusion.h
 #pragma once
 
-#include <vector>
 #include <random>
-#include <memory>
-#include "neuralNetwork.h"
+#include "../functional_expressions/FunctionalWrapper.hpp"
 
+//TODO
+/*
+-) additional constructors for more user friendly interface
+*/
 
-
-
-
-
-
-//forward diffusion along SDE
-// dX = \mu(X,t)*dt + \sigma(X,t)*dW_t 
-// where W_t is the standard Wiener process
 namespace diffusion{
-
-//forward declarations
-class FuncHelper;
-class ScalarFuncHelper;
-class VectorFuncHelper;
-class ExplicitFuncHelper;
 
 //base class for diffusion along
 // dX = drift(X,t)dt + diffusion(X,t)dW_t,
 // W_t standard Wiener process
+
+template<typename T>
+requires funcExpr::numerical<T>
+using vec = funcExpr::ReturnVector<T>;
+
+//for the following to typedefs note that any function expression eventually evaluating
+//to vec<T> inherits from these abstract types
+//this means that the members can actually be complicated function expressions 
+//this has two consequences
+//we are fully relying on lazy evaluation yielding performance gain
+//when passing these to the constructor they can be any function expression with BaseReturnExpressionType being vec<T>
+template<typename T>
+requires funcExpr::numerical<T>
+using driftFuncExpr = funcExpr::AbstractFunction<
+    vec<T>,
+    const vec<T>&, //X
+    T, //t
+    T   //dt
+>;
+//fully evaluating drift : drift = \mu(X,t)*dt and 
+
+
+template<typename T>
+requires funcExpr::numerical<T>
+using diffusionFuncExpr = funcExpr::AbstractFunction<
+    vec<T>,
+    const vec<T>&, //X
+    T,              //t
+    vec<T>&       //dW
+>;
+//fully evaluating diffusion = \sigma(X,t)*dW_t respectively
+
+
+template<typename T>
+requires funcExpr::numerical<T>
 class GeneralDiffusor{
 public:
-    //overloads of constructor depending on input format of drift and diffusion
-   
-    GeneralDiffusor(
-        double (*driftFct)(double,double),
-        double (*diffusionFct)(double, double)
-    );
-
-    GeneralDiffusor(
-        std::vector<double> (*driftFct)(const std::vector<double>&, double),
-        std::vector<double> (*diffusionFct)(const std::vector<double>&,double)
-    );
-
     
     GeneralDiffusor(
-        const diffusion::FuncHelper& driftFct,
-        const diffusion::FuncHelper& diffusionFct
+        const driftFuncExpr<T>& driftFct,
+        const diffusionFuncExpr<T>& diffusionFct,
+        int noiseDim=-1
     );
 
     //copy constructor needs to be custom to call modifiedClone FuncHelper
     //since FuncHelper has deleted copy constructor
-    GeneralDiffusor(
-        const GeneralDiffusor& other
-    );
-    
-    
-   
-    
-    virtual ~GeneralDiffusor(void); //create vtable
+    GeneralDiffusor(const GeneralDiffusor& other); //clone polymorphic members
 
-    /// @brief returns pseudo random number ~ N(0,1)
-    double getRandomNormal(void);
+    //not default because of unique_ptr member variables
+    GeneralDiffusor& operator=(const GeneralDiffusor& other);
+    
+    
+    //default ok because we use smart pointers for member variables
+    virtual ~GeneralDiffusor(void) = default; 
+
+    //clone for polymorphic copying
+    virtual std::unique_ptr<GeneralDiffusor> clone(void) const;
+
+    /// @brief returns pseudo random of type T number ~ N(0,1)
+    T getRandomNormal(void);
+
+    /// @brief returns pseudo random number of type T ~ Unif[low,high]
+    T getRandomUnif(T low, T high);
+    
+    /// @brief returns pseudo random vector of size noiseDim
+    vec<T> getRandomVector(int noiseDim, T scale = 1);
+
 
 
     /// @brief diffusion along dY = \mu(Y,t)*dt +  \sigma(Y,t)*dW_t
-    /// @param inputState Y(time)
+    /// @param inputState X(time)
     /// @param time 
-    /// @param timeStep compute Y(time+timestep)
+    /// @param timeStep compute X(time+timestep)
     /// @return Y(time+timestep)
-    double diffusionStep(
-        double inputState,
-        double time,
-        double timeStep
-    );
-
-    //vectorized version of above function
-    /// @brief diffusion along dY = \mu(Y,t)*dt +  \sigma(Y,t)*dW_t
-    /// @param inputState Y(time)
-    /// @param time 
-    /// @param timeStep compute Y(time+timestep)
-    /// @return Y(time+timestep)
-    std::vector<double> diffusionStep(
-        const std::vector<double>& inputState,
-        double time, 
-        double timeStep
+    vec<T> diffusionStep(
+        const vec<T>& inputState,
+        T time, 
+        T timeStep
     );
 
     //functions to sample from process
     //virtual because this can be sped up significantly for more specific processes
-
-    virtual double sample(
-        double inputState,
-        double time,
-        double timeStepSize
+    
+    /// @brief returns state of sample path at time starting from inputState
+    /// @param inputState 
+    /// @param time 
+    /// @param timeStepSize accuracy in sample path
+    virtual vec<T> sample(
+        const vec<T>& inputState,
+        T time,
+        T dt=1e-2
     );
 
-    virtual std::vector<double> sample(
-        const std::vector<double>& inputState,
-        double time,
-        double timeStepSize
+    /// @brief samples a path up to time starting from inputState
+    /// @param inputState 
+    /// @param time 
+    /// @param timeStepSize accuracy in sample path
+    /// @return vector of pairs (time, state at time)
+    std::vector<std::pair<T,vec<T>>> samplePath(
+        const vec<T>& inputState,
+        T time,
+        T timeStepSize=1e-2
     );
 
+   
+protected:
 
-private:
     std::mt19937 rng_;
-    std::unique_ptr<FuncHelper> driftFct_; 
-    std::unique_ptr<FuncHelper> diffusionFct_;
+    std::unique_ptr<driftFuncExpr<T>> driftFct_;  //polymophic type
+    std::unique_ptr<diffusionFuncExpr<T>> diffusionFct_; //polymophic type
+    int noiseDim_; 
+    //noise is given by diffusion matrix multiplied with noiseDim_ dimensional brownian motion
+    //if default value -1 uses dimension of states for noiseDim_ 
 };
 
-/*
+
 //
 //END GeneralDiffusor
 //
-*/
-
-
-/*
-
-BEGIN OUDiffusor
-
-*/
 
 
 
+//
+//BEGIN OUDiffusor
+//
 
 
 //derived class for Ornstein Uhlenbeck like processes
 // dX = -0.5*beta(t)*X(t)*dt + \sqrt(beta(t))*dW_t,
 // beta(t) is fixed variance schedule
 
-class OUDiffusor : public GeneralDiffusor{
+
+template<typename T>
+requires funcExpr::numerical<T>
+class OUDiffusor : public GeneralDiffusor<T>{
 public:
     OUDiffusor(
-        double (*varianceScheduleFct)(double),
-        double (*varianceScheduleIntegralFct)(double)
-    );
-
-    OUDiffusor(
-        const ScalarFuncHelper& varianceScheduleFct,
-        const ScalarFuncHelper& varianceScheduleIntegralFct
+        T (* const varianceScheduleFct)(T), //beta
+        T (* const varianceScheduleIntegralFct)(T),  //int_0^x \beta,
+        int dim
     );
 
 
-    
-    virtual ~OUDiffusor(void);
+    vec<T> sample(
+        const vec<T>& inputState,
+        T time,
+        T dt = 1e-2
+    ) override;
 
-    /// @brief samples from forward diffusion process
-    /// @param inputSample sample from initial distribution
-    /// @param time sample process at time
-    /// @return sample of diffusion process at time 
-    virtual double sample(
-        double inputSample,
-        double time
-    );
+ 
 
-    virtual std::vector<double> sample(
-        const std::vector<double>& inputSample,
-        double time
-    );
-protected:
-    //only used to construct LinearDiffusor
-    OUDiffusor(
-        double betaMin,
-        double betaMax,
-        double timeMax
-    );
 private:
-    std::unique_ptr<FuncHelper> varianceScheduleIntegralFct_;
+
+    //std::unique_ptr<funcExpr::AbstractFunction<funcExpr::ReturnScalar<T>,T>>;
+    T (*const varianceScheduleIntegralFct_)(T);
 };
 
 
+} //end of namespace diffusion
 
 
-//separated into own class purely for clarity
-//diffusor with linear variance schedule derived from GeneralDiffusor
-//beta(t)=betaMin_+(betaMax_-betaMin_)*t/timeMax_
-
-
-class LinearDiffusor : public OUDiffusor{
-public:
-    LinearDiffusor(
-        double betaMin,
-        double betaMax,
-        double timeMax
-    );    
-};
-
-
-
-
-
-
-}
-//end of namespace diffusion
-
-
-
-
+#include "generalDiffusion.hpp"
+#include "OUDiffusion.hpp"
 
