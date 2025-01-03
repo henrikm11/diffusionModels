@@ -1,13 +1,16 @@
 //ReturnExpression.hpp
-
-
 #pragma once
 
 
+#include <cassert>
 #include<vector>
 #include <concepts>
 #include <ranges>
 #include <initializer_list>
+
+//TODO
+/*
+*/
 
 
 namespace funcExpr{
@@ -32,6 +35,7 @@ requires numerical<T>
 class ReturnExpression{
 public:
 	using DataType = T;
+	using ExpressionType = E;
 	
 	DataType operator[](const size_t i) const {
 		return static_cast<const E*>(this)->operator[](i);
@@ -58,9 +62,15 @@ protected:
 };
 
 
+
 ///////////////////////////////////////////////////////////////
 template<typename E>
 concept isReturnExpression = std::derived_from<E,ReturnExpression<E,typename E::DataType>>;
+//note that this is not satisfied for ReturnExpression itself!
+
+template<typename E>
+concept retExprRef = isReturnExpression<std::remove_cvref_t<E>> || std::same_as<std::remove_cvref_t<E>,ReturnExpression<typename std::remove_cvref_t<E>::ExpressionType, typename std::remove_cvref_t<E>::DataType>>;
+
 ///////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////
@@ -128,13 +138,16 @@ public:
 			idx++;
 		}		
 	}
+	
 	ReturnVector(const ReturnVector& other) 
 		:data_(new T[other.size()]),
 		size_(other.size())
 	{
-	#pragma clang loop vectorize(enable) interleave(enable)
+		#pragma clang loop vectorize(enable) interleave(enable)
 		for(size_t i=0; i<size_; i++) data_[i]=other.data_[i];
 	}
+	
+	
 	ReturnVector& operator=(const ReturnVector& other){
 		//no need to check against self assignment here as we don't deallocate anything
 		assert(size_==other.size());
@@ -142,6 +155,7 @@ public:
 		for(size_t i=0; i<size_; i++) data_[i]=other.data_[i];
 		return *this;
 	}
+	
 	ReturnVector(ReturnVector&& other)
 		:data_(other.data_), 
 		size_(other.size_)
@@ -250,7 +264,9 @@ private:
 // ReturnOp
 ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////
-
+//no reference and cv types allowed here
+//but ok in call from operators
+//casting is done there
 template<typename E1, typename E2, template<typename> class BinOp>
 requires 
 	isReturnExpression<E1> 
@@ -271,24 +287,21 @@ public:
 			>
 		>;
 		
-	
-	ReturnOp(const E1& arg1, const E1& arg2)
-		:arg1_(arg1),
-		arg2_(arg2)
+
+	//templated with aliases to have perfect forwarding
+	template<typename E1_alias, typename E2_alias>
+	requires 
+		std::same_as<std::remove_cvref_t<E1_alias>, std::remove_cvref_t<E1>>
+		&& std::same_as<std::remove_cvref_t<E2_alias>, std::remove_cvref_t<E2>>
+	ReturnOp(E1_alias&& arg1, E2_alias&& arg2)
+		:arg1_(std::forward<E1_alias>(arg1)),
+		arg2_(std::forward<E2_alias>(arg2))
 	{
 		constexpr bool noWrapperVectorMix = isScalar || ((E1::isWrapper && E2::isWrapper) || (!E1::isWrapper && !E2::isWrapper));
 		static_assert(noWrapperVectorMix);
 		assert(arg1_.size()==arg2_.size() || arg1_.size()==1 || arg2_.size()==1);		
 	}
 	
-	ReturnOp(E1&& arg1, E2&& arg2)
-		:arg1_(std::move(arg1)),
-		arg2_(std::move(arg2))
-	{
-		constexpr bool noWrapperVectorMix = isScalar || ((E1::isWrapper && E2::isWrapper) || (!E1::isWrapper && !E2::isWrapper));
-		static_assert(noWrapperVectorMix);
-		assert(arg1_.size()==arg2_.size() || arg1_.size()==1 || arg2_.size()==1);		
-	}
 	
 	ReturnOp(const ReturnOp& other) = default;
 	ReturnOp& operator=(const ReturnOp& other) = default;
@@ -326,6 +339,82 @@ private:
 
 ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////
+////fowarding for static polymorphic types
+///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////
+//this is helpful for overload resolution and perfect forwarding in operators+* below
+
+
+//this does not fully take into account cv qualifieres yet!
+
+
+//overloads to get cv type	
+template<typename Base, typename Derived>
+struct cvType{
+	using type = Derived;
+};
+
+
+template<typename Base, typename Derived>
+struct cvType<const Base, Derived>{
+	using type = const Derived;
+};
+
+
+template<typename Base, typename Derived>
+struct cvType<volatile Base, Derived>{
+	using type = volatile Derived;
+};
+
+template<typename Base, typename Derived>
+struct cvType<const volatile Base, Derived>{
+	using type = const volatile Derived;
+};
+
+template<typename Base, typename Derived>
+using cvType_t = typename cvType<Base,Derived>::type;
+
+
+//overloads to get reference type
+template<typename Base, typename Derived>
+struct refType{
+	using type = Derived;
+};
+
+template<typename Base, typename Derived>
+struct refType<Base&, Derived>{
+	using type = Derived&;
+};
+
+template<typename Base, typename Derived>
+struct refType<Base&&, Derived>{
+	using type = Derived&&;
+};
+
+template<typename Base, typename Derived>
+using refType_t = typename refType<Base,Derived>::type;
+
+
+//combine them to get cv reference type
+template<typename Base, typename Derived>
+using cvRefType_t = refType_t<Base, cvType_t<std::remove_reference_t<Base>,std::remove_reference_t<Derived>>>;
+
+
+//forwarding operator for statically polymorphic types
+template<typename Base, typename Derived>
+constexpr cvRefType_t<Base, Derived> static_cast_forward(std::remove_reference_t<Base>& d) noexcept {
+	static_assert(std::is_base_of_v<std::remove_reference_t<Base>,std::remove_reference_t<Derived>>);
+	return static_cast<cvRefType_t<Base,Derived>>(d);
+}
+
+template<typename Base, typename Derived>
+constexpr cvRefType_t<Base, Derived> static_cast_forward(std::remove_reference_t<Base>&& d) noexcept{
+	static_assert(std::is_base_of_v<std::remove_reference_t<Base>,std::remove_reference_t<Derived>>);
+	return static_cast<cvRefType_t<Base,Derived>>(d);
+}
+
+///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////
 //operators +,* using ReturnOp template
 ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////
@@ -344,35 +433,59 @@ public:
 	constexpr T operator ()(const T& arg1, const T& arg2) const {return arg1*arg2;}
 };
 
-/*
-template<typename E1, typename E2>
-ReturnOp<removE1,E2,add> operator+(ReturnExpression<E1, typename E1::DataType>&& arg1, ReturnExpression<E2, typename E2::DataType>&& arg2){
-	return ReturnOp<E1,E2,add>(static_cast<E1&&>(arg1),static_cast<E2&&>(arg2));
-}
-*/
 
+//operator+
+//E1 and E2 can be ReturnExpression or derived from it
+//in the former case we static_cast them to their full type preserving reference and cv type
+//use the resulting types to call constructor of ReturnOP
 template<typename E1, typename E2>
-requires isReturnExpression<std::remove_reference_t<E1>> && isReturnExpression<std::remove_reference_t<E2>>
-ReturnOp<std::remove_reference_t<E1>,std::remove_reference_t<E2>,add> operator+(E1&& arg1, E2&& arg2){
-	return ReturnOp<E1,E2,add>(std::forward<E1>(arg1),std::forward<E2>(arg2));
+requires retExprRef<E1> && retExprRef<E2>
+ReturnOp<
+	typename std::remove_cvref_t<E1>::ExpressionType,
+	typename std::remove_cvref_t<E2>::ExpressionType,
+	add
+	>
+	operator+(
+		E1&& arg1,
+		E2&& arg2
+	){
+		return ReturnOp<
+			typename std::remove_cvref_t<E1>::ExpressionType,
+			typename std::remove_cvref_t<E2>::ExpressionType,
+			add
+			>(
+				static_cast_forward<E1&&, typename std::remove_reference_t<E1>::ExpressionType>(arg1),
+				static_cast_forward<E2&&, typename std::remove_reference_t<E2>::ExpressionType>(arg2)
+			)
+		;
 }
 
-/*
+//operator*
 template<typename E1, typename E2>
-ReturnOp<E1,E2,multiply> operator*(ReturnExpression<E1, typename E1::DataType>&& arg1, ReturnExpression<E2, typename E2::DataType>&& arg2){
-	return ReturnOp<E1,E2,multiply>(static_cast<E1&&>(arg1),static_cast<E2&&>(arg2));
+requires retExprRef<E1> && retExprRef<E2>
+ReturnOp<
+	typename std::remove_reference_t<E1>::ExpressionType,
+	typename std::remove_reference_t<E2>::ExpressionType,
+	multiply
+	>
+	operator*(
+		E1&& arg1,
+		E2&& arg2
+	){
+		return ReturnOp<
+			typename std::remove_reference_t<E1>::ExpressionType,
+			typename std::remove_reference_t<E2>::ExpressionType,
+			multiply
+			>(
+				static_cast_forward<E1&&, typename std::remove_reference_t<E1>::ExpressionType>(arg1),
+				static_cast_forward<E2&&, typename std::remove_reference_t<E2>::ExpressionType>(arg2)
+			)
+		;
 }
-*/
 
-template<typename E1, typename E2>
-requires isReturnExpression<std::remove_reference_t<E1>> && isReturnExpression<std::remove_reference_t<E2>>
-ReturnOp<E1,E2,multiply> operator*(E1&& arg1,E2&& arg2){
-	return ReturnOp<E1,E2,multiply>(std::forward<E1>(arg1),std::forward<E2>(arg2));
-}
 
 
 } //end of namespace funcExpr
-
 
 
 
