@@ -58,7 +58,8 @@ ReturnWrapper<T, Container>
 Overloads for operators+,*
 -) implemented via ReturnOp which is solely for implementation purposes and should only be accessed through operators
 -) supports perfect forwarding and can be called on any cv and reference type of ReturnExpression
- 
+-) supports broadcasting, i.e. ReturnScalar<T>+ReturnVector<T> adds scalar entry to every vector entry
+-) currently no support to add wrapper and ReturnVector
  
  
  
