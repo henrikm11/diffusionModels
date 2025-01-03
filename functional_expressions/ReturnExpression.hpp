@@ -10,7 +10,59 @@
 
 //TODO
 /*
+-) iterators
 */
+
+///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////
+// Summary
+///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////
+/*
+ReturnExpressions are meant to be used as efficient replacements e.g. for std::vector when doing arithmetics with functions.
+Consider the following simple example:
+Given three functions f1, f2, f3 that all return std::vector<int>, we want to define a new function F = f1+f2+f3.
+If we use the naive overloads for the operator + this adds unncessary memory accesses.
+The idea we rely on to speed this up is to use expression templates on the resulting returned vectors, which requires some memory
+management since these are temporary objects.
+In the example above, we would simply rewrite the functions f1,f2,f3 to return funcExpr::ReturnVector<int> whose memory is manage by the overload object created through the correspoding overload of operator+.
+ 
+ReturnExpression<T>
+-) base crtp class
+-) element access via operator[]
+-) ReturnVector<T> can be constructed from any ReturnExpression
+-) operators +,* are defined on any pair of ReturnExpressions and references thereof
+-) can convert to base data class
+ 
+ 
+We provide three basic data classes,
+ 
+ReturnScalar<T>:
+-) contains a single T
+-) sole purpose is convenient overloads e.g. for ReturnScala<T>*ReturnVector<T>
+ 
+ 
+ 
+ReturnVector<T>
+-) fixed size container (by far most common in mathematical applications)
+-) interface intended to be similar to std::vector but not everything implemented yet
+-) can be constructed from any ReturnExpression
+-) continuous memory
+ 
+ 
+ReturnWrapper<T, Container>
+-) wrapps a given container e.g. std::vector to handle its memory
+-) allows framework to interact with functions returning std::vector etc
+ 
+
+Overloads for operators+,*
+-) implemented via ReturnOp which is solely for implementation purposes and should only be accessed through operators
+-) supports perfect forwarding and can be called on any cv and reference type of ReturnExpression
+ 
+ 
+ 
+ 
+ */
 
 
 namespace funcExpr{
@@ -344,11 +396,7 @@ private:
 ///////////////////////////////////////////////////////////////
 //this is helpful for overload resolution and perfect forwarding in operators+* below
 
-
-//this does not fully take into account cv qualifieres yet!
-
-
-//overloads to get cv type	
+//overloads to get cv type
 template<typename Base, typename Derived>
 struct cvType{
 	using type = Derived;
