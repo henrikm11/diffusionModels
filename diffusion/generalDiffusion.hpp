@@ -3,107 +3,78 @@
 #pragma once
 
 #include <math.h>
+#include "diffusion.h"
+#include "../functional_expressions/FunctionalWrapper.hpp"
 
 namespace diffusion{
 
-template<typename T>
-requires funcExpr::numerical<T>
-GeneralDiffusor<T>::GeneralDiffusor(
-    const driftFuncExpr<T>& driftFct,
-    const diffusionFuncExpr<T>& diffusionFct,
-    int noiseDim
-)  
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+GeneralDiffusor<F1,F2>::GeneralDiffusor(
+        const driftFuncExpr<F1>& driftFct,
+        const diffusionFuncExpr<F2>& diffusionFct,
+        int noiseDim
+)
     :rng_(std::random_device{}()),
-    driftFct_(driftFct.clone()), //this keeps the original function
-    diffusionFct_(diffusionFct.clone()),
+    driftFct_(static_cast<const F1&>(driftFct)), //this keeps the original function
+    diffusionFct_(static_cast<const F2&>(diffusionFct)),
     noiseDim_(noiseDim)
 {}
 
-template<typename T>
-requires funcExpr::numerical<T>
-GeneralDiffusor<T>::GeneralDiffusor(const GeneralDiffusor<T>& other)
-    :rng_(std::random_device{}()),
-    driftFct_(other.driftFct_->clone()),
-    diffusionFct_(other.diffusionFct_->clone()), 
-    noiseDim_(other.noiseDim_)
-{}
 
-template<typename T>
-requires funcExpr::numerical<T>
-GeneralDiffusor<T>& GeneralDiffusor<T>::operator=(const GeneralDiffusor<T>& other){
-    if(this==&other) return *this;
-
-    std::unique_ptr<driftFuncExpr<T>> newDrift = other.driftFct_->clone();
-    driftFct_.reset(newDrift.release());
-
-    std::unique_ptr<diffusionFuncExpr<T>> newDiffusion = other.diffusionFct_->clone();
-    diffusionFct_.reset(newDiffusion.release());
-
-    noiseDim_=other.noiseDim_;
-
-    return *this;
-}
-
-
-//this is virtual
-template<typename T>
-requires funcExpr::numerical<T>
-std::unique_ptr<GeneralDiffusor<T>> GeneralDiffusor<T>::clone(void) const {
-    return std::make_unique<GeneralDiffusor<T>>(*this);
-}
-
-template<typename T>
-requires funcExpr::numerical<T>
-T GeneralDiffusor<T>::getRandomNormal() {
-    std::normal_distribution<T> dist(0,1); 
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+typename GeneralDiffusor<F1,F2>::numericalType GeneralDiffusor<F1,F2>::getRandomNormal() {
+    std::normal_distribution<typename GeneralDiffusor<F1,F2>::numericalType> dist(0,1);
     return dist(rng_);
 }
 
 
-template<typename T>
-requires funcExpr::numerical<T>
-T GeneralDiffusor<T>::getRandomUnif(T low, T high){
+
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+typename GeneralDiffusor<F1,F2>::numericalType GeneralDiffusor<F1,F2>::getRandomUnif(typename GeneralDiffusor<F1,F2>::numericalType low, typename GeneralDiffusor<F1,F2>::numericalType high){
     assert(low<high);
     std::uniform_real_distribution<double> dist(low,high);
     return dist(rng_);
 }
 
-template<typename T>
-requires funcExpr::numerical<T>
-vec<T> GeneralDiffusor<T>::getRandomVector(int noiseDim, T scale){
-    vec<T> randVec(noiseDim);
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+vec<typename GeneralDiffusor<F1,F2>::numericalType> GeneralDiffusor<F1,F2>::getRandomVector(int noiseDim, typename GeneralDiffusor<F1,F2>::numericalType scale){
+    vec<typename GeneralDiffusor<F1,F2>::numericalType> randVec(noiseDim);
     for(size_t i=0; i<randVec.size(); i++) randVec[i]=getRandomNormal()*scale;
     return randVec;
 }
 
-template<typename T>
-requires funcExpr::numerical<T>
-vec<T> GeneralDiffusor<T>::diffusionStep(
-    const vec<T>& inputState,
-    T time,
-    T timeStep
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+vec<typename GeneralDiffusor<F1,F2>::numericalType> GeneralDiffusor<F1,F2>::diffusionStep(
+    const vec<typename GeneralDiffusor<F1,F2>::numericalType>& inputState,
+    typename GeneralDiffusor<F1,F2>::numericalType time,
+    typename GeneralDiffusor<F1,F2>::numericalType timeStep
 ){
     
-    vec<T> noise = getRandomVector(noiseDim_, sqrt(timeStep));
-    return vec<T>(inputState)
-        +std::move((*driftFct_)(inputState,time,timeStep))
-        +std::move((*diffusionFct_)(inputState, time, noise ));
+    vec<typename GeneralDiffusor<F1,F2>::numericalType> noise = getRandomVector(noiseDim_, sqrt(timeStep));
+    return vec<typename GeneralDiffusor<F1,F2>::numericalType>(inputState)
+        +driftFct_(inputState,time,timeStep)
+        +diffusionFct_(inputState, time, noise );
     ;
 }
 
 //virtual sop we can be more efficient for Markov processes
-template<typename T>
-requires funcExpr::numerical<T>
-vec<T> GeneralDiffusor<T>::sample(
-    const vec<T>& inputState,
-    T time,
-    T timeStepSize
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+vec<typename GeneralDiffusor<F1,F2>::numericalType> GeneralDiffusor<F1,F2>::sample(
+    const vec<typename GeneralDiffusor<F1,F2>::numericalType>& inputState,
+    typename GeneralDiffusor<F1,F2>::numericalType time,
+    typename GeneralDiffusor<F1,F2>::numericalType timeStepSize
 ){
     //if(time<=0) throw(std::invalid_argument("diffusion::GeneralDiffusor::sample(...)need time>0"));
     //if(timeStepSize<=0) throw(std::invalid_argument("diffusion::GeneralDiffusor::sample(...)need timeStepSize>0"));
 
-    T currTime=0;
-    vec<T> res(inputState);
+    typename GeneralDiffusor<F1,F2>::numericalType currTime=0;
+    vec<typename GeneralDiffusor<F1,F2>::numericalType> res(inputState);
 
     while(currTime+timeStepSize<=time){
         res=diffusionStep(res,currTime,timeStepSize);
@@ -115,17 +86,17 @@ vec<T> GeneralDiffusor<T>::sample(
     return res;
 }
 
-template<typename T>
-requires funcExpr::numerical<T>
-std::vector<std::pair<T,vec<T>>> samplePath(
-    const vec<T>& inputState,
-    T time,
-    T timeStepSize
+template<typename F1, typename F2>
+requires diffusorPair<F1,F2>
+std::vector<std::pair<typename GeneralDiffusor<F1,F2>::numericalType,vec<typename GeneralDiffusor<F1,F2>::numericalType>>> samplePath(
+    const vec<typename GeneralDiffusor<F1,F2>::numericalType>& inputState,
+    typename GeneralDiffusor<F1,F2>::numericalType time,
+    typename GeneralDiffusor<F1,F2>::numericalType timeStepSize
 ){
-    std::vector<std::pair<T,vec<T>>> path;
+    std::vector<std::pair<typename GeneralDiffusor<F1,F2>::numericalType,vec<typename GeneralDiffusor<F1,F2>::numericalType>>> path;
     path.push_back({0,inputState});
     double currentTime=0;
-    vec<T> currentState=inputState;
+    vec<typename GeneralDiffusor<F1,F2>::numericalType> currentState=inputState;
     while(currentTime+timeStepSize<time){
         currentState=diffusionStep(
             currentState,
@@ -140,10 +111,10 @@ std::vector<std::pair<T,vec<T>>> samplePath(
         currentState=diffusionStep(
             currentState,
             currentTime,
-            time-currentTime 
+            time-currentTime
         );
         path.push_back({time,currentState});
-    } 
+    }
     return path;
 }
 
