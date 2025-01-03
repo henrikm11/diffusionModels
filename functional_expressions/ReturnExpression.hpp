@@ -459,6 +459,7 @@ constexpr cvRefType_t<Base, Derived> static_cast_forward(std::remove_reference_t
 template<typename Base, typename Derived>
 constexpr cvRefType_t<Base, Derived> static_cast_forward(std::remove_reference_t<Base>&& d) noexcept{
 	static_assert(std::is_base_of_v<std::remove_reference_t<Base>,std::remove_reference_t<Derived>>);
+	static_assert(!std::is_lvalue_reference_v<Base>); //prevent forwarding lvalue as rvalue
 	return static_cast<cvRefType_t<Base,Derived>>(d);
 }
 
