@@ -7,37 +7,38 @@
 
 //TODO
 /*
--) additional constructors for more user friendly interface
+-) add requirements for template parameter F in OUDiffusor
+-) remove indirections in OUDiffusor?
 */
 
 namespace diffusion{
 
 //base class for diffusion along
-// dX = drift(X,t)dt + diffusion(X,t)dW_t,
+// dX = drift(X,t)dt + diffusion(X,t)dW_t,s
 // W_t standard Wiener process
 
 template<typename T>
 requires funcExpr::numerical<T>
 using vec = funcExpr::ReturnVector<T>;
 
-//for the following to typedefs note that any function expression eventually evaluating
-//to vec<T> inherits from these abstract types
-//this means that the members can actually be complicated function expressions
-//this has two consequences
-//we are fully relying on lazy evaluation yielding performance gain
-//when passing these to the constructor they can be any function expression with BaseReturnExpressionType being vec<T>
 
+//this looks complicated but just says that the drift in SDE solver is evaluated by
+// (X,t,dt) -> mu(X,t)*dt
+// everything is a return expression
+// and this is evaluated by delegating the call to F
 template<typename F>
 requires funcExpr::isFunctionExpression<F,const vec<typename F::DataType>&, typename F::DataType, typename F::DataType>
 using driftFuncExpr = funcExpr::FunctionExpression<
     F, //delegates calls to F
-    typename F::ReturnExpressionType,
+    typename F::ReturnExpressionType, //whatever return expression we build in F
     const vec<typename F::DataType>&, //X
     typename F::DataType, //t
     typename F::DataType   //dt
 >;
-//fully evaluating drift : drift = \mu(X,t)*dt as a return expression
 
+
+//same as for drift, this time evaluating diffusion
+// (X,t,dW_t) \to \sigma(X,t)*dW_t
 template<typename F>
 requires funcExpr::isFunctionExpression<F,const vec<typename F::DataType>&, typename F::DataType,  vec<typename F::DataType>&>
 using diffusionFuncExpr = funcExpr::FunctionExpression<
@@ -47,19 +48,25 @@ using diffusionFuncExpr = funcExpr::FunctionExpression<
     typename F::DataType, //t
     vec<typename F::DataType>&   //dW
 >;
-//fully evaluating diffusion = \sigma(X,t)*dW_t respectively
 
+
+//ensures that F1 and F2 have correct signatures
+//note that this also ensures that the numerical data type is the same!
 template<typename F1, typename F2>
 concept diffusorPair =
     funcExpr::isFunctionExpression<F1, const vec<typename F1::DataType>&, typename F1::DataType, typename F1::DataType>
     &&
     funcExpr::isFunctionExpression<F2, const vec<typename F1::DataType>&, typename F1::DataType,  vec<typename F1::DataType>&>
 ;
-//note that this also ensures that the numerical data type is the same!
 
-//could do this:
-//template<typename T, funcExpr::isFunctionExpr driftFct, funcExpr::isFunctionExpr diffusionFct>
-//couple with factory method that does type deduction
+
+
+//
+//BEGIN GeneralDiffusor
+//
+
+//general class for diffusion along
+// dX_t = mu(X_t,t)dt + sigma(X_t,t)dW_t
 template<typename F1, typename F2>
 requires  diffusorPair<F1,F2>
 class GeneralDiffusor{
@@ -73,15 +80,9 @@ public:
         int noiseDim=-1
     );
 
-    //copy constructor needs to be custom to call modifiedClone FuncHelper
-    //since FuncHelper has deleted copy constructor
-    GeneralDiffusor(const GeneralDiffusor& other) = default; //clone polymorphic members
-
-    //not default because of unique_ptr member variables
+    GeneralDiffusor(const GeneralDiffusor& other) = default;
     GeneralDiffusor& operator=(const GeneralDiffusor& other) = default;
     
-    
-    //default ok because we use smart pointers for member variables
     virtual ~GeneralDiffusor(void) = default;
 
     //clone for polymorphic copying
@@ -137,8 +138,6 @@ public:
 protected:
 
     std::mt19937 rng_;
-    //std::unique_ptr<driftFuncExpr<T>> driftFct_;  //polymophic type
-    //std::unique_ptr<diffusionFuncExpr<T>> diffusionFct_; //polymophic type
     F1 driftFct_;
     F2 diffusionFct_;
     int noiseDim_;
@@ -177,11 +176,12 @@ using OUDriftExpr= std::remove_reference_t<
     )
 >;
 
-template<typename T>
+
+template<typename F, typename T> //F is callable T->T
 requires funcExpr::numerical<T>
 class OUDriftHelperClass{
 public:
-    OUDriftHelperClass(T(* const varianceScheduleFct)(T)):varianceScheduleFct_(varianceScheduleFct){}
+    OUDriftHelperClass(F varianceScheduleFct):varianceScheduleFct_(varianceScheduleFct){}
     
     OUDriftExpr<T> operator()(
         const vec<T>& X,
@@ -197,16 +197,15 @@ public:
     }
 
 private:
-    T (* const varianceScheduleFct_)(T);
+    F varianceScheduleFct_;
 };
 
-
 //we can remove one indirection by implementing a custom wrapper inherting from FunctionExpression
-template<typename T>
+template<typename F, typename T>
 using OUDriftFuncExpr = funcExpr::FunctionObjectWrapper<
-    OUDriftHelperClass<T>, //object we delegate to
+    OUDriftHelperClass<F,T>, //object we delegate to
     OUDriftExpr<T>,       //type of return expression it returns
-    const vec<T>&, T, T
+    const vec<T>&, T, T //arguments
 >;
 
 //diffusion
@@ -219,11 +218,11 @@ using OUDiffusionExpr = std::remove_reference_t<
     )
 >;
 
-template<typename T>
+template<typename F, typename T>
 requires funcExpr::numerical<T>
 class OUDiffusionHelperClass{
 public:
-    OUDiffusionHelperClass(T(* const varianceScheduleFct)(T)):varianceScheduleFct_(varianceScheduleFct){}
+    OUDiffusionHelperClass(F varianceScheduleFct):varianceScheduleFct_(varianceScheduleFct){}
     
     OUDiffusionExpr<T> operator()(
         const vec<T>& X,
@@ -237,16 +236,17 @@ public:
     }
 
 private:
-    T (* const varianceScheduleFct_)(T);
+    F varianceScheduleFct_;
 };
 
 //we can remove one indirection by implementing a custom wrapper inherting from FunctionExpression
-template<typename T>
+template<typename F, typename T>
 using OUDiffusionFuncExpr = funcExpr::FunctionObjectWrapper<
-    OUDiffusionHelperClass<T>, //object we delegate to
+    OUDiffusionHelperClass<F,T>, //object we delegate to
     OUDiffusionExpr<T>,       //type of return expression it returns
     const vec<T>&, T, vec<T>&
 >;
+
 
 
 //
@@ -258,17 +258,18 @@ using OUDiffusionFuncExpr = funcExpr::FunctionObjectWrapper<
 // dX = -0.5*beta(t)*X(t)*dt + \sqrt(beta(t))*dW_t,
 // beta(t) is fixed variance schedule
 
-
-template<typename T>
-requires funcExpr::numerical<T>
-class OUDiffusor : public GeneralDiffusor<OUDriftFuncExpr<T>,OUDiffusionFuncExpr<T>>{
+//template this more generally
+//to have callable F varianceScheduleIntegralFct_
+// so that we can simply overload constructor
+//type erasure would add yet another indirection
+//template everything above to F
+template<typename T, typename F1 = T(*)(T), typename F2 = T(*)(T)>
+class OUDiffusor : public GeneralDiffusor<OUDriftFuncExpr<F1,T>,OUDiffusionFuncExpr<F2,T>> {
 public:
-
-    using BaseDiffusor = GeneralDiffusor<OUDriftFuncExpr<T>,OUDiffusionFuncExpr<T>>;
-    
+    using BaseDiffusor = GeneralDiffusor<OUDriftFuncExpr<F1,T>,OUDiffusionFuncExpr<F2,T>>;
     OUDiffusor(
-            T (* const varianceScheduleFct)(T), //beta
-            T (* const varianceScheduleIntegralFct)(T),  //int_0^x \beta,
+            F1 varianceScheduleFct, //beta
+            F2  varianceScheduleIntegralFct,  //int_0^x \beta,
             int dim // stored in GeneralDiffusor::noiseDim
     );
 
@@ -278,26 +279,45 @@ public:
         T dt = 1e-2
     ) override;
 
-
 private:
-    T (*const varianceScheduleIntegralFct_)(T);
+
+    F2 varianceScheduleIntegralFct_; //needs to be callable T -> T, can be lambda too
 };
 
-//
-//END GeneralDiffusor
-//
+template<typename T>
+struct OUDiffusorFactory{
+    template<typename F1 = T(*)(T), typename F2 = T(*)(T)>
+    static OUDiffusor<T,F1,F2> createDiffusor(
+        F1 varianceScheduleFct, //beta
+        F2  varianceScheduleIntegralFct,  //int_0^x \beta,
+        int dim // stored in GeneralDiffusor::noiseDim
+    );
+    
+    //creates diffusor with vatianceSchedule beta(t)= betaMin+(betaMax-betaMin)*t/timeMax
+    static decltype(auto) createLinearDiffusor(
+        T betaMin,
+        T betaMax,
+        T timeMax,
+        int dim
+    );
+
+};
+
+template<typename T>
+decltype(auto) createLinearDiffusor(
+    T betaMin,
+    T betaMax,
+    T timeMax,
+    int dim
+);
+
+
+
+
 
 //
-//BEGIN LinearDiffusor
+//END OUDiffusor
 //
-
-
-
-
-//
-//END LinearDiffusor
-//
-
 
 
 } //end of namespace diffusion
